@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Script from 'next/script';
 import { createClient } from '@/utils/supabase/client';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { Reply, UserAccount, LANGUAGES } from './categories';
+import { CATEGORIES, Reply, UserAccount, LANGUAGES } from './categories';
 
 // ==========================================
 // 【SVGコンテンツの安全な描画コンポーネント】
@@ -59,8 +59,6 @@ const SVG_TEMPLATES = [
   { label: '🌅 富士山と夕日', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="260" height="180" viewBox="0 0 260 180"><defs><linearGradient id="sky" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#ff7b00"/><stop offset="100%" stop-color="#ffdd00"/></linearGradient></defs><rect width="260" height="180" fill="url(#sky)" rx="12"/><circle cx="130" cy="90" r="40" fill="#ff4500" opacity="0.8"/><polygon points="20,180 130,60 240,180" fill="#3b3a60"/><polygon points="90,180 130,120 170,180" fill="#ffffff"/><path d="M0 150 Q65 130 130 150 T260 150 L260 180 L0 180 Z" fill="#2d6a4f"/></svg>' }
 ];
 
-const DEFAULT_CATEGORIES = ['すべて', '雑談', 'プログラミング', '日常', '質問・相談'];
-
 const getIsMockMode = (): boolean => {
   if (typeof window === 'undefined') return true;
   return localStorage.getItem('app_mode') !== 'live';
@@ -86,8 +84,10 @@ const fetchGeminiOrMock = async (prompt: string, mockResponse: string): Promise<
 export default function KotodamaBoard() {
   const supabase = createClient();
   const [theme, setTheme] = useState<'channel' | 'enjoy' | 'z' | 'chat'>('chat');
-  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
-  const [currentCategory, setCurrentCategory] = useState('すべて');
+  
+  // categories.ts から完全なカテゴリー配列を確実に読み込む
+  const [categories] = useState<string[]>(CATEGORIES);
+  const [currentCategory, setCurrentCategory] = useState(CATEGORIES[0] || 'すべて');
 
   const [selectedBoard, setSelectedBoard] = useState('news');
   const [selectedJaneThreadId, setSelectedJaneThreadId] = useState<number | null>(null);
@@ -419,7 +419,8 @@ export default function KotodamaBoard() {
       .select('*')
       .order('id', { ascending: true });
 
-    if (currentCategory && currentCategory !== 'すべて') {
+    // 「すべて」以外のカテゴリーが選ばれている場合のみ絞り込み
+    if (currentCategory && currentCategory !== CATEGORIES[0]) {
       query = query.eq('category', currentCategory);
     }
 
@@ -469,7 +470,7 @@ export default function KotodamaBoard() {
         likes: item.likes || 0,
         dislikes: item.dislikes || 0,
         targetMode: item.target_mode || 'all',
-        category: item.category || '雑談',
+        category: item.category || CATEGORIES[1] || '雑談',
         parentId: item.parent_id || null,
         repostCount: countMap[item.id] || 0,
         updatedAt: item.updated_at || undefined,
@@ -677,7 +678,7 @@ ${contentToPost}`;
         likes: 0,
         dislikes: 0,
         target_mode: targetModeVal,
-        category: currentCategory === 'すべて' ? '雑談' : currentCategory,
+        category: currentCategory === CATEGORIES[0] ? (CATEGORIES[1] || '雑談') : currentCategory,
         parent_id: null,
         repost_count: 0,
       };
@@ -749,7 +750,7 @@ ${replyText}`;
       }
 
       const parentPost = replies.find(r => r.id === parentId);
-      const replyCategory = parentPost?.category || (currentCategory === 'すべて' ? '雑談' : currentCategory);
+      const replyCategory = parentPost?.category || (currentCategory === CATEGORIES[0] ? (CATEGORIES[1] || '雑談') : currentCategory);
 
       const newReplyData = {
         author,
@@ -1322,7 +1323,7 @@ ${replyText}`;
                       myPosts.map((post) => (
                         <div key={post.id} className="border border-gray-200 p-3 rounded-xl bg-gray-50 space-y-2">
                           <div className="flex justify-between items-center text-gray-500 text-[11px]">
-                            <span>カテゴリー: <b>{post.category || '雑談'}</b> | 日時: {post.date}</span>
+                            <span>カテゴリー: <b>{post.category || CATEGORIES[1]}</b> | 日時: {post.date}</span>
                             <button
                               onClick={(e) => handleDelete(post.id, post.handle, e)}
                               className="text-red-600 font-bold hover:underline cursor-pointer"
@@ -1393,7 +1394,7 @@ ${replyText}`;
                                     <SafeSvgContent content={titleText} size="thumb" />
                                   </div>
                                   <div className="text-[10px] text-gray-500">
-                                    投稿者: {post.author} ({post.category || '雑談'})
+                                    投稿者: {post.author} ({post.category || CATEGORIES[1]})
                                   </div>
                                 </div>
                               </div>
@@ -1541,7 +1542,7 @@ ${replyText}`;
           <div className="min-h-screen font-sans text-xs bg-[#eef3f8] text-[#000] p-2">
             <div className="max-w-6xl mx-auto my-3 bg-white border border-[#b0b0b0] shadow-sm grid grid-cols-12 min-h-[80vh]">
               <div className="col-span-3 sm:col-span-2 bg-[#f0f4f8] border-r border-[#c0c0c0] p-2 space-y-3 text-[11px] overflow-y-auto max-h-[80vh]">
-                <div className="font-bold text-[#800000] border-b border-[#c0c0c0] pb-1">■ カテゴリー一覧</div>
+                <div className="font-bold text-[#800000] border-b border-[#c0c0c0] pb-1">■ カテゴリー一覧 ({categories.length}件)</div>
                 <div className="space-y-1">
                   {categories.map((catName) => (
                     <button
@@ -1900,7 +1901,7 @@ ${replyText}`;
             <div className="border-b border-gray-300 px-6 py-3 flex items-center justify-between bg-white shadow-xs gap-4">
               <div 
                 onClick={() => { 
-                  setCurrentCategory('すべて'); 
+                  setCurrentCategory(CATEGORIES[0]); 
                   setEnjoyViewMode('list'); 
                   setIsBookmarkView(false); 
                 }} 
@@ -1937,7 +1938,7 @@ ${replyText}`;
 
             <div className="grid grid-cols-1 md:grid-cols-12 min-h-[600px] bg-white">
               <div className="col-span-3 border-r border-gray-300 p-3 bg-[#f8faf9] space-y-3 text-xs overflow-y-auto max-h-[75vh]">
-                <div className="font-bold text-[#1b5e20] border-b border-gray-300 pb-1">カテゴリー一覧</div>
+                <div className="font-bold text-[#1b5e20] border-b border-gray-300 pb-1">カテゴリー一覧 ({categories.length}件)</div>
                 <div className="space-y-1">
                   {categories.map((catName) => (
                     <button
@@ -2249,7 +2250,7 @@ ${replyText}`;
                 <div className="text-xl font-black px-3 text-sky-400 tracking-wider">𝕫 言霊</div>
                 <nav className="space-y-1 text-sm font-bold">
                   <div onClick={() => { 
-                    setCurrentCategory('すべて');
+                    setCurrentCategory(CATEGORIES[0]);
                     setActivePostId(null);         
                     setIsBookmarkView(false);      
                     setZTab('timeline');           
@@ -2273,7 +2274,7 @@ ${replyText}`;
                 </nav>
 
                 <div className="pt-4 border-t border-[#2f3336]">
-                  <div className="text-xs font-bold text-gray-400 px-3 mb-2">📁 カテゴリー</div>
+                  <div className="text-xs font-bold text-gray-400 px-3 mb-2">📁 カテゴリー ({categories.length}件)</div>
                   <div className="space-y-1 max-h-56 overflow-y-auto">
                     {categories.map((catName) => (
                       <div
@@ -3077,7 +3078,7 @@ ${replyText}`;
                   <h4 className="font-bold text-amber-800 text-sm border-b pb-1">✨ 主な便利機能</h4>
                   <ul className="list-disc pl-5 space-y-1.5 text-gray-600">
                     <li><b>🎨 絵文字・AA・SVGパレット:</b> チャット等の入力欄にあるパレットボタンから、絵文字やアスキーアート、SVGパーツをワンクリックで挿入できます。</li>
-                    <li><b>🤖 Gemini翻訳:</b> 投稿にある「✨ Gemini翻訳」を押すと、AIが瞬時に自然な日本語（または選択中の言語）に翻訳してくれます。</li>
+                    <li><b>🤖 Gemini翻訳:</b> 投稿にあるクエリや翻訳ボタンから、AIが瞬時に自然な日本語や各言語へ翻訳してくれます。</li>
                     <li><b>🛡️ AI暴言フィルター:</b> 攻撃的な言葉が入力された場合でも、AIが自動的にマイルドで優しい表現に言い換えて投稿を守ります。</li>
                   </ul>
                 </div>
