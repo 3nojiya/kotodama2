@@ -360,6 +360,16 @@ export default function KotodamaBoard() {
     }
   }, []);
 
+  // 【ログイン改善】モーダルが開いたときに確実にGoogleボタンを描画するロジック
+  useEffect(() => {
+    if (isAuthModalOpen) {
+      const timer = setTimeout(() => {
+        initializeGoogleButton();
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [isAuthModalOpen]);
+
   const initializeGoogleButton = () => {
     try {
       if ((window as any).google) {
@@ -370,6 +380,7 @@ export default function KotodamaBoard() {
 
         const btnElement = document.getElementById('google-signin-btn');
         if (btnElement) {
+          btnElement.innerHTML = ''; // 重複防止
           (window as any).google.accounts.id.renderButton(
             btnElement,
             { theme: 'outline', size: 'large', width: '280' }
@@ -663,7 +674,10 @@ export default function KotodamaBoard() {
 
       let finalContent = contentToPost;
 
-      if (contentToPost.trim()) {
+      // 【SVG問題の根本解決】SVGが含まれている場合はAIフィルターをバイパスして保護する
+      const containsSvgTag = /<\s*svg[\s>]/i.test(contentToPost);
+
+      if (contentToPost.trim() && !containsSvgTag) {
         try {
           const prompt = `以下の投稿テキストをチェックしてください。
 暴言、悪口、攻撃的な言葉が含まれている場合は、その意図を汲みつつ、相手を傷つけない『非常にマイルドで優しく丁寧な言葉（またはポジティブな言葉）』に言い換えて、変換後のテキストのみを出力してください。
@@ -747,17 +761,22 @@ ${contentToPost}`;
 
       let finalReplyText = replyText;
 
-      try {
-        const prompt = `以下の投稿テキストをチェックしてください。
+      // 【SVG問題の根本解決】SVGが含まれている場合は返信時のAIフィルターをバイパス
+      const containsSvgTag = /<\s*svg[\s>]/i.test(replyText);
+
+      if (!containsSvgTag) {
+        try {
+          const prompt = `以下の投稿テキストをチェックしてください。
 暴言、悪口、攻撃的な言葉が含まれている場合は、その意図を汲みつつ、相手を傷つけない『非常にマイルドで優しく丁寧な言葉（またはポジティブな言葉）』に言い換えて、変換後のテキストのみを出力してください。
 暴言や悪口が含まれていない場合は、元のテキストをそのまま出力してください。
 
 投稿テキスト:
 ${replyText}`;
 
-        finalReplyText = await fetchGeminiOrMock(prompt, replyText);
-      } catch (err) {
-        console.error('返信フィルターエラー:', err);
+          finalReplyText = await fetchGeminiOrMock(prompt, replyText);
+        } catch (err) {
+          console.error('返信フィルターエラー:', err);
+        }
       }
 
       const parentPost = replies.find(r => r.id === parentId);
@@ -900,9 +919,6 @@ ${replyText}`;
       setEditNameInput('');
       setEditHandleInput('');
       setIsAuthModalOpen(true);
-      setTimeout(() => {
-        initializeGoogleButton();
-      }, 100);
     }
     setTimeout(() => setNoticeMessage(null), 3000);
   };
