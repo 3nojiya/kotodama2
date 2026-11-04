@@ -11,7 +11,6 @@ import { Reply, UserAccount, ENJOY_CATEGORIES, LANGUAGES } from './categories';
 // ==========================================
 const SafeSvgContent: React.FC<{ content: string; size?: 'thumb' | 'full' }> = ({ content, size = 'full' }) => {
   const safeContent = content || '';
-  // 大文字・小文字や改行・スペースの揺れを無視して確実にSVGタグを検知する正規表現
   const hasSvgTag = /<\s*svg[\s>]/i.test(safeContent) && /<\s*\/\s*svg\s*>/i.test(safeContent);
 
   if (safeContent && hasSvgTag) {
@@ -91,6 +90,7 @@ export default function KotodamaBoard() {
   const [enjoyViewMode, setEnjoyViewMode] = useState<'list' | 'detail' | 'write'>('list');
   const [enjoySelectedThreadId, setEnjoySelectedThreadId] = useState<number | null>(null);
 
+  // 初期状態を未ログイン（ゲスト）に整理し、後でLocalStorageから復元する
   const [account, setAccount] = useState<UserAccount>({
     isLoggedIn: false,
     name: 'ゲスト',
@@ -98,9 +98,33 @@ export default function KotodamaBoard() {
     avatarChar: 'ゲ',
   });
 
+  // 起動時にLocalStorageからログインセッションを復元
+  useEffect(() => {
+    const savedAccount = localStorage.getItem('kotodama_user_account');
+    if (savedAccount) {
+      try {
+        const parsed = JSON.parse(savedAccount);
+        if (parsed && parsed.isLoggedIn) {
+          setAccount(parsed);
+        }
+      } catch (e) {
+        console.error('セッション復元エラー:', e);
+      }
+    }
+  }, []);
+
+  // ログイン状態が変わったらLocalStorageに保存
+  useEffect(() => {
+    if (account.isLoggedIn) {
+      localStorage.setItem('kotodama_user_account', JSON.stringify(account));
+    } else {
+      localStorage.removeItem('kotodama_user_account');
+    }
+  }, [account]);
+
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [editNameInput, setEditNameInput] = useState(account.name);
-  const [editHandleInput, setEditHandleInput] = useState(account.handle);
+  const [editNameInput, setEditNameInput] = useState('');
+  const [editHandleInput, setEditHandleInput] = useState('');
 
   const [isMyPageOpen, setIsMyPageOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
@@ -296,12 +320,14 @@ export default function KotodamaBoard() {
         const userEmail = responsePayload.email || '';
         const userHandle = `@${userEmail.split('@')[0] || 'google'}`;
 
-        setAccount({
+        const newAcc = {
           isLoggedIn: true,
           name: userName,
           handle: userHandle,
           avatarChar: userName.slice(0, 1) || 'G',
-        });
+        };
+
+        setAccount(newAcc);
         setIsAuthModalOpen(false);
         setNoticeMessage(`✔ Googleログイン成功！ようこそ、${userName} さん`);
         setTimeout(() => setNoticeMessage(null), 3000);
@@ -590,13 +616,21 @@ export default function KotodamaBoard() {
 
   const handlePost = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // ログイン状態および投稿内容のバリデーション強化（未ログイン時は投稿をブロックするか警告）
+    if (!account.isLoggedIn) {
+      alert('書き込みを行うにはログインが必要です。画面右上の「ログイン」ボタンからログインしてください。');
+      setIsAuthModalOpen(true);
+      return;
+    }
+
     if ((!newComment.trim() && !mediaUrlInput.trim() && !newThreadTitle.trim()) || isSubmitting) return;
 
     setIsSubmitting(true);
 
     try {
-      let author = newAuthorName.trim() || (account.isLoggedIn ? account.name : 'ゲスト');
-      let handle = account.isLoggedIn ? account.handle : '@guest';
+      let author = newAuthorName.trim() || account.name;
+      let handle = account.handle;
 
       let dateStr = new Date().toLocaleString();
       if (theme === 'channel') {
@@ -674,13 +708,19 @@ ${contentToPost}`;
   };
 
   const handleReplySubmit = async (parentId: number, customText?: string) => {
+    if (!account.isLoggedIn) {
+      alert('書き込みを行うにはログインが必要です。画面右上の「ログイン」ボタンからログインしてください。');
+      setIsAuthModalOpen(true);
+      return;
+    }
+
     const replyText = customText || replyInputs[parentId];
     if (!replyText || !replyText.trim() || isSubmitting) return;
 
     setIsSubmitting(true);
     try {
-      let author = newAuthorName.trim() || (account.isLoggedIn ? account.name : 'ゲスト');
-      let handle = account.isLoggedIn ? account.handle : '@guest';
+      let author = newAuthorName.trim() || account.name;
+      let handle = account.handle;
 
       let dateStr = new Date().toLocaleString();
       if (theme === 'channel' || theme === 'enjoy') {
@@ -821,12 +861,14 @@ ${replyText}`;
     e.preventDefault();
     if (!editNameInput.trim()) return;
 
-    setAccount({
+    const newAcc = {
       isLoggedIn: true,
       name: editNameInput.trim(),
       handle: editHandleInput.trim().startsWith('@') ? editHandleInput.trim() : `@${editHandleInput.trim()}`,
       avatarChar: editNameInput.trim().slice(0, 1) || '素',
-    });
+    };
+
+    setAccount(newAcc);
     setIsAuthModalOpen(false);
     setNoticeMessage('アカウント情報を更新しました！');
     setTimeout(() => setNoticeMessage(null), 3000);
@@ -835,8 +877,11 @@ ${replyText}`;
   const handleToggleLogin = () => {
     if (account.isLoggedIn) {
       setAccount({ isLoggedIn: false, name: 'ゲスト', handle: '@guest', avatarChar: 'ゲ' });
+      localStorage.removeItem('kotodama_user_account');
       setNoticeMessage('ログアウトしました。');
     } else {
+      setEditNameInput('');
+      setEditHandleInput('');
       setIsAuthModalOpen(true);
       setTimeout(() => {
         initializeGoogleButton();
@@ -1473,11 +1518,11 @@ ${replyText}`;
               <form onSubmit={handleSaveAccount} className="space-y-3">
                 <div>
                   <label className="text-xs text-gray-400 block mb-1">表示名</label>
-                  <input type="text" value={editNameInput} onChange={(e) => setEditNameInput(e.target.value)} className="w-full bg-black border border-gray-700 rounded p-2 text-xs text-white outline-none" required />
+                  <input type="text" value={editNameInput} onChange={(e) => setEditNameInput(e.target.value)} placeholder="例: 山田太郎" className="w-full bg-black border border-gray-700 rounded p-2 text-xs text-white outline-none" required />
                 </div>
                 <div>
                   <label className="text-xs text-gray-400 block mb-1">ハンドルネーム (@ID)</label>
-                  <input type="text" value={editHandleInput} onChange={(e) => setEditHandleInput(e.target.value)} className="w-full bg-black border border-gray-700 rounded p-2 text-xs text-white outline-none" />
+                  <input type="text" value={editHandleInput} onChange={(e) => setEditHandleInput(e.target.value)} placeholder="例: @yamada" className="w-full bg-black border border-gray-700 rounded p-2 text-xs text-white outline-none" />
                 </div>
                 <div className="pt-2 flex justify-end gap-2">
                   <button type="button" onClick={() => setIsAuthModalOpen(false)} className="px-3 py-1.5 bg-gray-800 text-gray-300 rounded text-xs cursor-pointer">キャンセル</button>
@@ -1734,7 +1779,7 @@ ${replyText}`;
                       <div className="flex flex-wrap items-center gap-3 text-xs">
                         <label className="flex items-center gap-1">
                           <span>名前:</span>
-                          <input type="text" value={newAuthorName} onChange={(e) => setNewAuthorName(e.target.value)} placeholder="名無しさん" className="border border-gray-400 px-2 py-0.5 bg-white text-black rounded w-36 outline-none" />
+                          <input type="text" value={newAuthorName} onChange={(e) => setNewAuthorName(e.target.value)} placeholder={account.isLoggedIn ? account.name : "名無しさん"} className="border border-gray-400 px-2 py-0.5 bg-white text-black rounded w-36 outline-none" />
                         </label>
                         <label className="flex items-center gap-1">
                           <span>E-mail:</span>
@@ -1784,7 +1829,7 @@ ${replyText}`;
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block font-bold text-gray-700 mb-1">名前:</label>
-                        <input type="text" value={newAuthorName} onChange={(e) => setNewAuthorName(e.target.value)} placeholder="名無しさん" className="w-full border border-gray-400 p-2 rounded text-xs outline-none bg-white text-black" />
+                        <input type="text" value={newAuthorName} onChange={(e) => setNewAuthorName(e.target.value)} placeholder={account.isLoggedIn ? account.name : "名無しさん"} className="w-full border border-gray-400 p-2 rounded text-xs outline-none bg-white text-black" />
                       </div>
                       <div>
                         <label className="block font-bold text-gray-700 mb-1">E-mail (sage等):</label>
@@ -1933,7 +1978,7 @@ ${replyText}`;
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block font-bold text-gray-700 mb-1">お名前:</label>
-                          <input type="text" value={newAuthorName} onChange={(e) => setNewAuthorName(e.target.value)} placeholder="名無しさん" className="w-full border border-gray-300 p-2 rounded text-xs outline-none bg-white text-black" />
+                          <input type="text" value={newAuthorName} onChange={(e) => setNewAuthorName(e.target.value)} placeholder={account.isLoggedIn ? account.name : "名無しさん"} className="w-full border border-gray-300 p-2 rounded text-xs outline-none bg-white text-black" />
                         </div>
                         <div>
                           <label className="block font-bold text-gray-700 mb-1">E-mail (sage等):</label>
