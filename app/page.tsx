@@ -4,21 +4,32 @@ import React, { useState, useEffect, useRef } from 'react';
 import Script from 'next/script';
 import { createClient } from '@/utils/supabase/client';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { Reply, UserAccount, ENJOY_CATEGORIES, LANGUAGES } from './categories';
+import { ENJOY_CATEGORIES, Reply, UserAccount, LANGUAGES } from './categories';
 
 // ==========================================
-// 【SVGコンテンツの安全な描画コンポーネント（Vercel対応強化版）】
+// 【SVGコンテンツの安全な描画コンポーネント】
 // ==========================================
 const SafeSvgContent: React.FC<{ content: string; size?: 'thumb' | 'full' }> = ({ content, size = 'full' }) => {
   const safeContent = content || '';
-  const hasSvgTag = /<\s*svg[\s>]/i.test(safeContent) && /<\s*\/\s*svg\s*>/i.test(safeContent);
 
-  if (safeContent && hasSvgTag) {
+  const decoded = safeContent
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+
+  const hasSvgTag = /<\s*svg[\s>]/i.test(decoded) && /<\s*\/\s*svg\s*>/i.test(decoded);
+
+  if (decoded && hasSvgTag) {
+    const svgMatch = decoded.match(/<svg[\s\S]*?<\/svg>/i);
+    const svgOnly = svgMatch ? svgMatch[0] : decoded;
+
     if (size === 'thumb') {
       return (
         <div 
           className="svg-container-thumb inline-flex items-center justify-center w-7 h-7 overflow-hidden rounded bg-black/10 shrink-0"
-          dangerouslySetInnerHTML={{ __html: safeContent }} 
+          dangerouslySetInnerHTML={{ __html: svgOnly }} 
         />
       );
     }
@@ -26,14 +37,13 @@ const SafeSvgContent: React.FC<{ content: string; size?: 'thumb' | 'full' }> = (
     return (
       <div 
         className="svg-container-full w-full overflow-x-auto p-4 bg-black/20 rounded-2xl flex justify-center my-2 max-h-[500px]"
-        dangerouslySetInnerHTML={{ __html: safeContent }} 
+        dangerouslySetInnerHTML={{ __html: svgOnly }} 
       />
     );
   }
   return <span className="whitespace-pre-wrap break-words">{safeContent}</span>;
 };
 
-// パレット用のプリセットデータ
 const EMOJI_LIST = ['😊', '😂', '🔥', '✨', '👍', '🎉', '💬', '🌟', '🤝', '⛩️'];
 const AA_LIST = [
   '(´・ω・`)',
@@ -74,10 +84,10 @@ const fetchGeminiOrMock = async (prompt: string, mockResponse: string): Promise<
 export default function KotodamaBoard() {
   const supabase = createClient();
   const [theme, setTheme] = useState<'channel' | 'enjoy' | 'z' | 'chat'>('chat');
-  const [categories, setCategories] = useState<string[]>([
-    'すべて', '雑談', 'プログラミング', '日常', '質問・相談'
-  ]);
-  const [currentCategory, setCurrentCategory] = useState('すべて');
+  
+  // categories.ts から ENJOY_CATEGORIES を正確に読み込む
+  const [categories] = useState<string[]>(ENJOY_CATEGORIES);
+  const [currentCategory, setCurrentCategory] = useState(ENJOY_CATEGORIES[0] || 'すべて');
 
   const [selectedBoard, setSelectedBoard] = useState('news');
   const [selectedJaneThreadId, setSelectedJaneThreadId] = useState<number | null>(null);
@@ -90,7 +100,6 @@ export default function KotodamaBoard() {
   const [enjoyViewMode, setEnjoyViewMode] = useState<'list' | 'detail' | 'write'>('list');
   const [enjoySelectedThreadId, setEnjoySelectedThreadId] = useState<number | null>(null);
 
-  // 初期状態を未ログイン（ゲスト）に整理し、後でLocalStorageから復元する
   const [account, setAccount] = useState<UserAccount>({
     isLoggedIn: false,
     name: 'ゲスト',
@@ -98,7 +107,8 @@ export default function KotodamaBoard() {
     avatarChar: 'ゲ',
   });
 
-  // 起動時にLocalStorageからログインセッションを復元
+  const [isHydrated, setIsHydrated] = useState(false);
+
   useEffect(() => {
     const savedAccount = localStorage.getItem('kotodama_user_account');
     if (savedAccount) {
@@ -111,16 +121,17 @@ export default function KotodamaBoard() {
         console.error('セッション復元エラー:', e);
       }
     }
+    setIsHydrated(true);
   }, []);
 
-  // ログイン状態が変わったらLocalStorageに保存
   useEffect(() => {
+    if (!isHydrated) return;
     if (account.isLoggedIn) {
       localStorage.setItem('kotodama_user_account', JSON.stringify(account));
     } else {
       localStorage.removeItem('kotodama_user_account');
     }
-  }, [account]);
+  }, [account, isHydrated]);
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [editNameInput, setEditNameInput] = useState('');
@@ -177,25 +188,6 @@ export default function KotodamaBoard() {
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    const handleStorageChange = () => {
-      if (!getIsMockMode()) {
-        supabase
-          .from('categories')
-          .select('name')
-          .order('id', { ascending: true })
-          .then(({ data, error }) => {
-            if (!error && data && data.length > 0) {
-              setCategories(data.map((item: { name: string }) => item.name));
-            }
-          });
-      }
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   const [activePostId, setActivePostId] = useState<number | null>(null);
@@ -342,6 +334,15 @@ export default function KotodamaBoard() {
     }
   }, []);
 
+  useEffect(() => {
+    if (isAuthModalOpen) {
+      const timer = setTimeout(() => {
+        initializeGoogleButton();
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [isAuthModalOpen]);
+
   const initializeGoogleButton = () => {
     try {
       if ((window as any).google) {
@@ -352,6 +353,7 @@ export default function KotodamaBoard() {
 
         const btnElement = document.getElementById('google-signin-btn');
         if (btnElement) {
+          btnElement.innerHTML = '';
           (window as any).google.accounts.id.renderButton(
             btnElement,
             { theme: 'outline', size: 'large', width: '280' }
@@ -417,7 +419,7 @@ export default function KotodamaBoard() {
       .select('*')
       .order('id', { ascending: true });
 
-    if (currentCategory && currentCategory !== 'すべて') {
+    if (currentCategory && currentCategory !== ENJOY_CATEGORIES[0]) {
       query = query.eq('category', currentCategory);
     }
 
@@ -467,7 +469,7 @@ export default function KotodamaBoard() {
         likes: item.likes || 0,
         dislikes: item.dislikes || 0,
         targetMode: item.target_mode || 'all',
-        category: item.category || '雑談',
+        category: item.category || ENJOY_CATEGORIES[1] || '雑談',
         parentId: item.parent_id || null,
         repostCount: countMap[item.id] || 0,
         updatedAt: item.updated_at || undefined,
@@ -486,7 +488,7 @@ export default function KotodamaBoard() {
 
   useEffect(() => {
     fetchPosts();
-  }, [account.handle]);
+  }, [account.handle, currentCategory]);
 
   const handleDelete = async (id: number, postHandle: string | undefined, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -617,7 +619,6 @@ export default function KotodamaBoard() {
   const handlePost = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // ログイン状態および投稿内容のバリデーション強化（未ログイン時は投稿をブロックするか警告）
     if (!account.isLoggedIn) {
       alert('書き込みを行うにはログインが必要です。画面右上の「ログイン」ボタンからログインしてください。');
       setIsAuthModalOpen(true);
@@ -645,8 +646,9 @@ export default function KotodamaBoard() {
       }
 
       let finalContent = contentToPost;
+      const containsSvgTag = /<\s*svg[\s>]/i.test(contentToPost);
 
-      if (contentToPost.trim()) {
+      if (contentToPost.trim() && !containsSvgTag) {
         try {
           const prompt = `以下の投稿テキストをチェックしてください。
 暴言、悪口、攻撃的な言葉が含まれている場合は、その意図を汲みつつ、相手を傷つけない『非常にマイルドで優しく丁寧な言葉（またはポジティブな言葉）』に言い換えて、変換後のテキストのみを出力してください。
@@ -675,7 +677,7 @@ ${contentToPost}`;
         likes: 0,
         dislikes: 0,
         target_mode: targetModeVal,
-        category: currentCategory,
+        category: currentCategory === ENJOY_CATEGORIES[0] ? (ENJOY_CATEGORIES[1] || '雑談') : currentCategory,
         parent_id: null,
         repost_count: 0,
       };
@@ -729,22 +731,25 @@ ${contentToPost}`;
       }
 
       let finalReplyText = replyText;
+      const containsSvgTag = /<\s*svg[\s>]/i.test(replyText);
 
-      try {
-        const prompt = `以下の投稿テキストをチェックしてください。
+      if (!containsSvgTag) {
+        try {
+          const prompt = `以下の投稿テキストをチェックしてください。
 暴言、悪口、攻撃的な言葉が含まれている場合は、その意図を汲みつつ、相手を傷つけない『非常にマイルドで優しく丁寧な言葉（またはポジティブな言葉）』に言い換えて、変換後のテキストのみを出力してください。
 暴言や悪口が含まれていない場合は、元のテキストをそのまま出力してください。
 
 投稿テキスト:
 ${replyText}`;
 
-        finalReplyText = await fetchGeminiOrMock(prompt, replyText);
-      } catch (err) {
-        console.error('返信フィルターエラー:', err);
+          finalReplyText = await fetchGeminiOrMock(prompt, replyText);
+        } catch (err) {
+          console.error('返信フィルターエラー:', err);
+        }
       }
 
       const parentPost = replies.find(r => r.id === parentId);
-      const replyCategory = parentPost?.category || currentCategory;
+      const replyCategory = parentPost?.category || (currentCategory === ENJOY_CATEGORIES[0] ? (ENJOY_CATEGORIES[1] || '雑談') : currentCategory);
 
       const newReplyData = {
         author,
@@ -883,9 +888,6 @@ ${replyText}`;
       setEditNameInput('');
       setEditHandleInput('');
       setIsAuthModalOpen(true);
-      setTimeout(() => {
-        initializeGoogleButton();
-      }, 100);
     }
     setTimeout(() => setNoticeMessage(null), 3000);
   };
@@ -931,11 +933,6 @@ ${replyText}`;
 
     if (isBookmarkView) {
       return userBookmarks[r.id] === true;
-    }
-
-    const postCategory = r.category || '雑談';
-    if (currentCategory !== 'すべて' && postCategory !== currentCategory) {
-      return false;
     }
 
     if (theme === 'channel' && r.targetMode !== 'all' && r.targetMode !== 'channel') return false;
@@ -1325,7 +1322,7 @@ ${replyText}`;
                       myPosts.map((post) => (
                         <div key={post.id} className="border border-gray-200 p-3 rounded-xl bg-gray-50 space-y-2">
                           <div className="flex justify-between items-center text-gray-500 text-[11px]">
-                            <span>カテゴリー: <b>{post.category || '雑談'}</b> | 日時: {post.date}</span>
+                            <span>カテゴリー: <b>{post.category || ENJOY_CATEGORIES[1]}</b> | 日時: {post.date}</span>
                             <button
                               onClick={(e) => handleDelete(post.id, post.handle, e)}
                               className="text-red-600 font-bold hover:underline cursor-pointer"
@@ -1396,7 +1393,7 @@ ${replyText}`;
                                     <SafeSvgContent content={titleText} size="thumb" />
                                   </div>
                                   <div className="text-[10px] text-gray-500">
-                                    投稿者: {post.author} ({post.category || '雑談'})
+                                    投稿者: {post.author} ({post.category || ENJOY_CATEGORIES[1]})
                                   </div>
                                 </div>
                               </div>
@@ -1544,7 +1541,7 @@ ${replyText}`;
           <div className="min-h-screen font-sans text-xs bg-[#eef3f8] text-[#000] p-2">
             <div className="max-w-6xl mx-auto my-3 bg-white border border-[#b0b0b0] shadow-sm grid grid-cols-12 min-h-[80vh]">
               <div className="col-span-3 sm:col-span-2 bg-[#f0f4f8] border-r border-[#c0c0c0] p-2 space-y-3 text-[11px] overflow-y-auto max-h-[80vh]">
-                <div className="font-bold text-[#800000] border-b border-[#c0c0c0] pb-1">■ カテゴリー一覧</div>
+                <div className="font-bold text-[#800000] border-b border-[#c0c0c0] pb-1">■ カテゴリー一覧 ({categories.length}件)</div>
                 <div className="space-y-1">
                   {categories.map((catName) => (
                     <button
@@ -1591,7 +1588,6 @@ ${replyText}`;
                       .filter(thread => thread.content.toLowerCase().includes(channelSearchQuery.toLowerCase()))
                       .map((thread, idx) => {
                         const threadCount = replies.filter(r => r.parentId === thread.id).length;
-                        const isSelected = selectedJaneThreadId === thread.id;
                         const threadTitleText = thread.content.startsWith('【') && thread.content.includes('】\n') 
                           ? thread.content.split('】\n')[0].replace('【', '') 
                           : thread.content.split('\n')[0];
@@ -1810,7 +1806,6 @@ ${replyText}`;
                   <div className="p-8 text-center text-gray-500 border border-dashed rounded">スレッドを選択すると表示されます</div>
                 )}
 
-                {/* 新規スレッド作成フォーム */}
                 <div ref={newThreadFormRef} className="border border-[#c0c0c0] bg-white p-4 rounded space-y-3 shadow-sm">
                   <div className="font-bold text-[#800000] border-b pb-2 text-sm">■ 新規スレッド作成フォーム (カテゴリー: {currentCategory})</div>
                   <form onSubmit={handlePost} className="space-y-3">
@@ -1905,18 +1900,18 @@ ${replyText}`;
             <div className="border-b border-gray-300 px-6 py-3 flex items-center justify-between bg-white shadow-xs gap-4">
               <div 
                 onClick={() => { 
-                  setCurrentCategory('すべて'); 
+                  setCurrentCategory(ENJOY_CATEGORIES[0]); 
                   setEnjoyViewMode('list'); 
                   setIsBookmarkView(false); 
                 }} 
                 className="text-3xl font-black italic tracking-wider text-[#1b5e20] cursor-pointer hover:opacity-80 transition select-none shrink-0 pr-4"
-                title="ホーム（すべてのトピック）に戻る"
+                title="ホームに戻る"
               >
                 enjoy mode
               </div>
 
               <div className="flex-1 max-w-md mx-auto">
-                <div className="flex items-center gap-2 bg-gray-100 border border-gray-300 px-3 py-1.5 rounded-full focus-within:border-emerald-600 focus-within:bg-white transition shadow-inner">
+                <div className="flex items-center gap-2 bg-gray-100 border border-gray-300 px-3 py-1.5 rounded-full">
                   <span className="text-gray-400 text-xs pl-1">🔍</span>
                   <input
                     type="text"
@@ -1938,12 +1933,11 @@ ${replyText}`;
                   ⭐ {isBookmarkView ? '掲示板に戻る' : 'お気に入り一覧'}
                 </button>
               </div>
-
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-12 min-h-[600px] bg-white">
               <div className="col-span-3 border-r border-gray-300 p-3 bg-[#f8faf9] space-y-3 text-xs overflow-y-auto max-h-[75vh]">
-                <div className="font-bold text-[#1b5e20] border-b border-gray-300 pb-1">カテゴリー一覧</div>
+                <div className="font-bold text-[#1b5e20] border-b border-gray-300 pb-1">カテゴリー一覧 ({categories.length}件)</div>
                 <div className="space-y-1">
                   {categories.map((catName) => (
                     <button
@@ -1987,7 +1981,7 @@ ${replyText}`;
                       </div>
 
                       <div>
-                        <label className="block font-bold text-gray-700 mb-1">本文 (AIマイルドフィルター自動適用):</label>
+                        <label className="block font-bold text-gray-700 mb-1">本文:</label>
                         <textarea rows={6} value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="本文を入力してください..." className="w-full border border-gray-300 p-2 rounded text-xs outline-none bg-white text-black" required />
                       </div>
 
@@ -2255,7 +2249,7 @@ ${replyText}`;
                 <div className="text-xl font-black px-3 text-sky-400 tracking-wider">𝕫 言霊</div>
                 <nav className="space-y-1 text-sm font-bold">
                   <div onClick={() => { 
-                    setCurrentCategory('すべて');
+                    setCurrentCategory(ENJOY_CATEGORIES[0]);
                     setActivePostId(null);         
                     setIsBookmarkView(false);      
                     setZTab('timeline');           
@@ -2279,7 +2273,7 @@ ${replyText}`;
                 </nav>
 
                 <div className="pt-4 border-t border-[#2f3336]">
-                  <div className="text-xs font-bold text-gray-400 px-3 mb-2">📁 カテゴリー</div>
+                  <div className="text-xs font-bold text-gray-400 px-3 mb-2">📁 カテゴリー ({categories.length}件)</div>
                   <div className="space-y-1 max-h-56 overflow-y-auto">
                     {categories.map((catName) => (
                       <div
@@ -2720,7 +2714,6 @@ ${replyText}`;
                         .map((reply) => {
                           const userVote = userVotes[`reply_${reply.id}`];
                           const isReposted = userReposts[reply.id];
-                          const childCount = replies.filter(r => r.parentId === reply.id).length;
                           const isEditing = editingReplyKey === `reply-${reply.id}`;
                           const isReplyOpen = replyBoxOpen[reply.id];
                           const isMyPost = account.isLoggedIn && account.handle === reply.handle;
@@ -3084,7 +3077,7 @@ ${replyText}`;
                   <h4 className="font-bold text-amber-800 text-sm border-b pb-1">✨ 主な便利機能</h4>
                   <ul className="list-disc pl-5 space-y-1.5 text-gray-600">
                     <li><b>🎨 絵文字・AA・SVGパレット:</b> チャット等の入力欄にあるパレットボタンから、絵文字やアスキーアート、SVGパーツをワンクリックで挿入できます。</li>
-                    <li><b>🤖 Gemini翻訳:</b> 投稿にある「✨ Gemini翻訳」を押すと、AIが瞬時に自然な日本語（または選択中の言語）に翻訳してくれます。</li>
+                    <li><b>🤖 Gemini翻訳:</b> 投稿にあるボタンから、AIが瞬時に自然な日本語や各言語へ翻訳してくれます。</li>
                     <li><b>🛡️ AI暴言フィルター:</b> 攻撃的な言葉が入力された場合でも、AIが自動的にマイルドで優しい表現に言い換えて投稿を守ります。</li>
                   </ul>
                 </div>
