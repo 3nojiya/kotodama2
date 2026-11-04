@@ -7,17 +7,19 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Reply, UserAccount, ENJOY_CATEGORIES, LANGUAGES } from './categories';
 
 // ==========================================
-// 【SVGコンテンツの安全な描画コンポーネント】
-// size="thumb": 一覧用のコンパクトサムネイル
-// size="full" : 詳細・本文用の大画面・迫力表示
+// 【SVGコンテンツの安全な描画コンポーネント（Vercel対応強化版）】
 // ==========================================
 const SafeSvgContent: React.FC<{ content: string; size?: 'thumb' | 'full' }> = ({ content, size = 'full' }) => {
-  if (content && content.includes('<svg') && content.includes('</svg>')) {
+  const safeContent = content || '';
+  // 大文字・小文字や改行・スペースの揺れを無視して確実にSVGタグを検知する正規表現
+  const hasSvgTag = /<\s*svg[\s>]/i.test(safeContent) && /<\s*\/\s*svg\s*>/i.test(safeContent);
+
+  if (safeContent && hasSvgTag) {
     if (size === 'thumb') {
       return (
         <div 
           className="svg-container-thumb inline-flex items-center justify-center w-7 h-7 overflow-hidden rounded bg-black/10 shrink-0"
-          dangerouslySetInnerHTML={{ __html: content }} 
+          dangerouslySetInnerHTML={{ __html: safeContent }} 
         />
       );
     }
@@ -25,14 +27,14 @@ const SafeSvgContent: React.FC<{ content: string; size?: 'thumb' | 'full' }> = (
     return (
       <div 
         className="svg-container-full w-full overflow-x-auto p-4 bg-black/20 rounded-2xl flex justify-center my-2 max-h-[500px]"
-        dangerouslySetInnerHTML={{ __html: content }} 
+        dangerouslySetInnerHTML={{ __html: safeContent }} 
       />
     );
   }
-  return <span className="whitespace-pre-wrap break-words">{content}</span>;
+  return <span className="whitespace-pre-wrap break-words">{safeContent}</span>;
 };
 
-// パレット用のプリセットデータ（大きめのリッチSVGテンプレートを追加）
+// パレット用のプリセットデータ
 const EMOJI_LIST = ['😊', '😂', '🔥', '✨', '👍', '🎉', '💬', '🌟', '🤝', '⛩️'];
 const AA_LIST = [
   '(´・ω・`)',
@@ -48,7 +50,6 @@ const SVG_TEMPLATES = [
   { label: '🌅 富士山と夕日', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="260" height="180" viewBox="0 0 260 180"><defs><linearGradient id="sky" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#ff7b00"/><stop offset="100%" stop-color="#ffdd00"/></linearGradient></defs><rect width="260" height="180" fill="url(#sky)" rx="12"/><circle cx="130" cy="90" r="40" fill="#ff4500" opacity="0.8"/><polygon points="20,180 130,60 240,180" fill="#3b3a60"/><polygon points="90,180 130,120 170,180" fill="#ffffff"/><path d="M0 150 Q65 130 130 150 T260 150 L260 180 L0 180 Z" fill="#2d6a4f"/></svg>' }
 ];
 
-// モック / 本番モードを localStorage から判定する関数
 const getIsMockMode = (): boolean => {
   if (typeof window === 'undefined') return true;
   return localStorage.getItem('app_mode') !== 'live';
@@ -79,7 +80,6 @@ export default function KotodamaBoard() {
   ]);
   const [currentCategory, setCurrentCategory] = useState('すべて');
 
-  // chモード用ステート
   const [selectedBoard, setSelectedBoard] = useState('news');
   const [selectedJaneThreadId, setSelectedJaneThreadId] = useState<number | null>(null);
   const [viewLimitMode, setViewLimitMode] = useState<'all' | '50' | '100'>('all');
@@ -88,7 +88,6 @@ export default function KotodamaBoard() {
   const [newEmail, setNewEmail] = useState('');
   const [channelSearchQuery, setChannelSearchQuery] = useState('');
 
-  // enjoyモード用ステート
   const [enjoyViewMode, setEnjoyViewMode] = useState<'list' | 'detail' | 'write'>('list');
   const [enjoySelectedThreadId, setEnjoySelectedThreadId] = useState<number | null>(null);
 
