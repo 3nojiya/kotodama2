@@ -4,15 +4,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import Script from 'next/script';
 import { createClient } from '@/utils/supabase/client';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { Reply, UserAccount, ENJOY_CATEGORIES, LANGUAGES } from './categories';
+import { Reply, UserAccount, LANGUAGES } from './categories';
 
 // ==========================================
-// 【SVGコンテンツの安全な描画コンポーネント（Vercel対応強化版）】
+// 【SVGコンテンツの安全な描画コンポーネント】
 // ==========================================
 const SafeSvgContent: React.FC<{ content: string; size?: 'thumb' | 'full' }> = ({ content, size = 'full' }) => {
   const safeContent = content || '';
 
-  // HTMLエンティティをデコードしてからチェック（Geminiフィルター対策）
   const decoded = safeContent
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
@@ -23,7 +22,6 @@ const SafeSvgContent: React.FC<{ content: string; size?: 'thumb' | 'full' }> = (
   const hasSvgTag = /<\s*svg[\s>]/i.test(decoded) && /<\s*\/\s*svg\s*>/i.test(decoded);
 
   if (decoded && hasSvgTag) {
-    // SVG部分のみを安全に抽出
     const svgMatch = decoded.match(/<svg[\s\S]*?<\/svg>/i);
     const svgOnly = svgMatch ? svgMatch[0] : decoded;
 
@@ -46,7 +44,6 @@ const SafeSvgContent: React.FC<{ content: string; size?: 'thumb' | 'full' }> = (
   return <span className="whitespace-pre-wrap break-words">{safeContent}</span>;
 };
 
-// パレット用のプリセットデータ
 const EMOJI_LIST = ['😊', '😂', '🔥', '✨', '👍', '🎉', '💬', '🌟', '🤝', '⛩️'];
 const AA_LIST = [
   '(´・ω・`)',
@@ -61,6 +58,8 @@ const SVG_TEMPLATES = [
   { label: '🔥 炎マーク', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="#e63946"><path d="M12 23c-4.97 0-9-4.03-9-9 0-4.13 2.76-7.53 6.55-8.66.5-.15.95.27.87.79-.34 2.14.36 4.3 1.95 5.82 1.48 1.42 2.21 3.42 1.97 5.45C15.89 16.42 17 14.82 17 13c0-.55.45-1 1-1s1 .45 1 1c0 3.86-3.14 7-7 7z"/></svg>' },
   { label: '🌅 富士山と夕日', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="260" height="180" viewBox="0 0 260 180"><defs><linearGradient id="sky" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#ff7b00"/><stop offset="100%" stop-color="#ffdd00"/></linearGradient></defs><rect width="260" height="180" fill="url(#sky)" rx="12"/><circle cx="130" cy="90" r="40" fill="#ff4500" opacity="0.8"/><polygon points="20,180 130,60 240,180" fill="#3b3a60"/><polygon points="90,180 130,120 170,180" fill="#ffffff"/><path d="M0 150 Q65 130 130 150 T260 150 L260 180 L0 180 Z" fill="#2d6a4f"/></svg>' }
 ];
+
+const DEFAULT_CATEGORIES = ['すべて', '雑談', 'プログラミング', '日常', '質問・相談'];
 
 const getIsMockMode = (): boolean => {
   if (typeof window === 'undefined') return true;
@@ -87,9 +86,7 @@ const fetchGeminiOrMock = async (prompt: string, mockResponse: string): Promise<
 export default function KotodamaBoard() {
   const supabase = createClient();
   const [theme, setTheme] = useState<'channel' | 'enjoy' | 'z' | 'chat'>('chat');
-  const [categories, setCategories] = useState<string[]>([
-    'すべて', '雑談', 'プログラミング', '日常', '質問・相談'
-  ]);
+  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
   const [currentCategory, setCurrentCategory] = useState('すべて');
 
   const [selectedBoard, setSelectedBoard] = useState('news');
@@ -103,7 +100,6 @@ export default function KotodamaBoard() {
   const [enjoyViewMode, setEnjoyViewMode] = useState<'list' | 'detail' | 'write'>('list');
   const [enjoySelectedThreadId, setEnjoySelectedThreadId] = useState<number | null>(null);
 
-  // 初期状態を未ログイン（ゲスト）に整理
   const [account, setAccount] = useState<UserAccount>({
     isLoggedIn: false,
     name: 'ゲスト',
@@ -111,9 +107,8 @@ export default function KotodamaBoard() {
     avatarChar: 'ゲ',
   });
 
-  const [isHydrated, setIsHydrated] = useState(false); // 復元完了フラグ（レースコンディション対策）
+  const [isHydrated, setIsHydrated] = useState(false);
 
-  // 起動時にLocalStorageからログインセッションを復元
   useEffect(() => {
     const savedAccount = localStorage.getItem('kotodama_user_account');
     if (savedAccount) {
@@ -126,13 +121,11 @@ export default function KotodamaBoard() {
         console.error('セッション復元エラー:', e);
       }
     }
-    setIsHydrated(true); // 復元完了を記録
+    setIsHydrated(true);
   }, []);
 
-  // ログイン状態が変わったらLocalStorageに保存（ハイドレーション完了後のみ走らせる）
   useEffect(() => {
-    if (!isHydrated) return; // 初回マウント時に誤ってセッションを削除するのを防止
-
+    if (!isHydrated) return;
     if (account.isLoggedIn) {
       localStorage.setItem('kotodama_user_account', JSON.stringify(account));
     } else {
@@ -195,25 +188,6 @@ export default function KotodamaBoard() {
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    const handleStorageChange = () => {
-      if (!getIsMockMode()) {
-        supabase
-          .from('categories')
-          .select('name')
-          .order('id', { ascending: true })
-          .then(({ data, error }) => {
-            if (!error && data && data.length > 0) {
-              setCategories(data.map((item: { name: string }) => item.name));
-            }
-          });
-      }
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   const [activePostId, setActivePostId] = useState<number | null>(null);
@@ -360,7 +334,6 @@ export default function KotodamaBoard() {
     }
   }, []);
 
-  // 【ログイン改善】モーダルが開いたときに確実にGoogleボタンを描画するロジック
   useEffect(() => {
     if (isAuthModalOpen) {
       const timer = setTimeout(() => {
@@ -380,7 +353,7 @@ export default function KotodamaBoard() {
 
         const btnElement = document.getElementById('google-signin-btn');
         if (btnElement) {
-          btnElement.innerHTML = ''; // 重複防止
+          btnElement.innerHTML = '';
           (window as any).google.accounts.id.renderButton(
             btnElement,
             { theme: 'outline', size: 'large', width: '280' }
@@ -515,7 +488,7 @@ export default function KotodamaBoard() {
 
   useEffect(() => {
     fetchPosts();
-  }, [account.handle]);
+  }, [account.handle, currentCategory]);
 
   const handleDelete = async (id: number, postHandle: string | undefined, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -673,8 +646,6 @@ export default function KotodamaBoard() {
       }
 
       let finalContent = contentToPost;
-
-      // 【SVG問題の根本解決】SVGが含まれている場合はAIフィルターをバイパスして保護する
       const containsSvgTag = /<\s*svg[\s>]/i.test(contentToPost);
 
       if (contentToPost.trim() && !containsSvgTag) {
@@ -706,7 +677,7 @@ ${contentToPost}`;
         likes: 0,
         dislikes: 0,
         target_mode: targetModeVal,
-        category: currentCategory,
+        category: currentCategory === 'すべて' ? '雑談' : currentCategory,
         parent_id: null,
         repost_count: 0,
       };
@@ -760,8 +731,6 @@ ${contentToPost}`;
       }
 
       let finalReplyText = replyText;
-
-      // 【SVG問題の根本解決】SVGが含まれている場合は返信時のAIフィルターをバイパス
       const containsSvgTag = /<\s*svg[\s>]/i.test(replyText);
 
       if (!containsSvgTag) {
@@ -780,7 +749,7 @@ ${replyText}`;
       }
 
       const parentPost = replies.find(r => r.id === parentId);
-      const replyCategory = parentPost?.category || currentCategory;
+      const replyCategory = parentPost?.category || (currentCategory === 'すべて' ? '雑談' : currentCategory);
 
       const newReplyData = {
         author,
@@ -964,11 +933,6 @@ ${replyText}`;
 
     if (isBookmarkView) {
       return userBookmarks[r.id] === true;
-    }
-
-    const postCategory = r.category || '雑談';
-    if (currentCategory !== 'すべて' && postCategory !== currentCategory) {
-      return false;
     }
 
     if (theme === 'channel' && r.targetMode !== 'all' && r.targetMode !== 'channel') return false;
@@ -1624,7 +1588,6 @@ ${replyText}`;
                       .filter(thread => thread.content.toLowerCase().includes(channelSearchQuery.toLowerCase()))
                       .map((thread, idx) => {
                         const threadCount = replies.filter(r => r.parentId === thread.id).length;
-                        const isSelected = selectedJaneThreadId === thread.id;
                         const threadTitleText = thread.content.startsWith('【') && thread.content.includes('】\n') 
                           ? thread.content.split('】\n')[0].replace('【', '') 
                           : thread.content.split('\n')[0];
@@ -1843,7 +1806,6 @@ ${replyText}`;
                   <div className="p-8 text-center text-gray-500 border border-dashed rounded">スレッドを選択すると表示されます</div>
                 )}
 
-                {/* 新規スレッド作成フォーム */}
                 <div ref={newThreadFormRef} className="border border-[#c0c0c0] bg-white p-4 rounded space-y-3 shadow-sm">
                   <div className="font-bold text-[#800000] border-b pb-2 text-sm">■ 新規スレッド作成フォーム (カテゴリー: {currentCategory})</div>
                   <form onSubmit={handlePost} className="space-y-3">
@@ -1943,13 +1905,13 @@ ${replyText}`;
                   setIsBookmarkView(false); 
                 }} 
                 className="text-3xl font-black italic tracking-wider text-[#1b5e20] cursor-pointer hover:opacity-80 transition select-none shrink-0 pr-4"
-                title="ホーム（すべてのトピック）に戻る"
+                title="ホームに戻る"
               >
                 enjoy mode
               </div>
 
               <div className="flex-1 max-w-md mx-auto">
-                <div className="flex items-center gap-2 bg-gray-100 border border-gray-300 px-3 py-1.5 rounded-full focus-within:border-emerald-600 focus-within:bg-white transition shadow-inner">
+                <div className="flex items-center gap-2 bg-gray-100 border border-gray-300 px-3 py-1.5 rounded-full">
                   <span className="text-gray-400 text-xs pl-1">🔍</span>
                   <input
                     type="text"
@@ -1971,7 +1933,6 @@ ${replyText}`;
                   ⭐ {isBookmarkView ? '掲示板に戻る' : 'お気に入り一覧'}
                 </button>
               </div>
-
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-12 min-h-[600px] bg-white">
@@ -2020,7 +1981,7 @@ ${replyText}`;
                       </div>
 
                       <div>
-                        <label className="block font-bold text-gray-700 mb-1">本文 (AIマイルドフィルター自動適用):</label>
+                        <label className="block font-bold text-gray-700 mb-1">本文:</label>
                         <textarea rows={6} value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="本文を入力してください..." className="w-full border border-gray-300 p-2 rounded text-xs outline-none bg-white text-black" required />
                       </div>
 
@@ -2753,7 +2714,6 @@ ${replyText}`;
                         .map((reply) => {
                           const userVote = userVotes[`reply_${reply.id}`];
                           const isReposted = userReposts[reply.id];
-                          const childCount = replies.filter(r => r.parentId === reply.id).length;
                           const isEditing = editingReplyKey === `reply-${reply.id}`;
                           const isReplyOpen = replyBoxOpen[reply.id];
                           const isMyPost = account.isLoggedIn && account.handle === reply.handle;
