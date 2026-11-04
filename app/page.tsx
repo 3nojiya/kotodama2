@@ -7,24 +7,32 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Reply, UserAccount, ENJOY_CATEGORIES, LANGUAGES } from './categories';
 
 // ==========================================
-// 【開発用設定】
-// true  = APIを一切叩かず、モック（ダミー）で動作します
-// false = 本番運用
+// 【SVGコンテンツの安全な描画コンポーネント】
+// size="thumb": 一覧用のコンパクトサムネイル
+// size="full" : 詳細・本文用の大画面・迫力表示
 // ==========================================
-// SVGコンテンツの安全な描画コンポーネント
-const SafeSvgContent: React.FC<{ content: string }> = ({ content }) => {
-  if (content.includes('<svg') && content.includes('</svg>')) {
+const SafeSvgContent: React.FC<{ content: string; size?: 'thumb' | 'full' }> = ({ content, size = 'full' }) => {
+  if (content && content.includes('<svg') && content.includes('</svg>')) {
+    if (size === 'thumb') {
+      return (
+        <div 
+          className="svg-container-thumb inline-flex items-center justify-center w-7 h-7 overflow-hidden rounded bg-black/10 shrink-0"
+          dangerouslySetInnerHTML={{ __html: content }} 
+        />
+      );
+    }
+
     return (
       <div 
-        className="svg-container overflow-x-auto p-2 bg-white/10 rounded-lg max-w-full flex justify-center"
+        className="svg-container-full w-full overflow-x-auto p-4 bg-black/20 rounded-2xl flex justify-center my-2 max-h-[500px]"
         dangerouslySetInnerHTML={{ __html: content }} 
       />
     );
   }
-  return <span className="whitespace-pre-wrap">{content}</span>;
+  return <span className="whitespace-pre-wrap break-words">{content}</span>;
 };
 
-// パレット用のプリセットデータ
+// パレット用のプリセットデータ（大きめのリッチSVGテンプレートを追加）
 const EMOJI_LIST = ['😊', '😂', '🔥', '✨', '👍', '🎉', '💬', '🌟', '🤝', '⛩️'];
 const AA_LIST = [
   '(´・ω・`)',
@@ -37,8 +45,9 @@ const AA_LIST = [
 const SVG_TEMPLATES = [
   { label: '🌟 星マーク', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="#ffb703"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>' },
   { label: '🔥 炎マーク', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="#e63946"><path d="M12 23c-4.97 0-9-4.03-9-9 0-4.13 2.76-7.53 6.55-8.66.5-.15.95.27.87.79-.34 2.14.36 4.3 1.95 5.82 1.48 1.42 2.21 3.42 1.97 5.45C15.89 16.42 17 14.82 17 13c0-.55.45-1 1-1s1 .45 1 1c0 3.86-3.14 7-7 7z"/></svg>' },
-  { label: '💬 吹き出し', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="#c1440e"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>' }
+  { label: '🌅 富士山と夕日', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="260" height="180" viewBox="0 0 260 180"><defs><linearGradient id="sky" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#ff7b00"/><stop offset="100%" stop-color="#ffdd00"/></linearGradient></defs><rect width="260" height="180" fill="url(#sky)" rx="12"/><circle cx="130" cy="90" r="40" fill="#ff4500" opacity="0.8"/><polygon points="20,180 130,60 240,180" fill="#3b3a60"/><polygon points="90,180 130,120 170,180" fill="#ffffff"/><path d="M0 150 Q65 130 130 150 T260 150 L260 180 L0 180 Z" fill="#2d6a4f"/></svg>' }
 ];
+
 // モック / 本番モードを localStorage から判定する関数
 const getIsMockMode = (): boolean => {
   if (typeof window === 'undefined') return true;
@@ -46,7 +55,7 @@ const getIsMockMode = (): boolean => {
 };
 
 const fetchGeminiOrMock = async (prompt: string, mockResponse: string): Promise<string> => {
-  if (getIsMockMode()) { // ←カッコをつけて関数として呼び出す！
+  if (getIsMockMode()) {
     await new Promise((resolve) => setTimeout(resolve, 300));
     return mockResponse;
   }
@@ -65,11 +74,9 @@ const fetchGeminiOrMock = async (prompt: string, mockResponse: string): Promise<
 export default function KotodamaBoard() {
   const supabase = createClient();
   const [theme, setTheme] = useState<'channel' | 'enjoy' | 'z' | 'chat'>('chat');
-// カテゴリー一覧を保持するステート（初期値としていくつかのカテゴリーや空配列）
   const [categories, setCategories] = useState<string[]>([
     'すべて', '雑談', 'プログラミング', '日常', '質問・相談'
   ]);
-  // カテゴリー選択用ステート（初期値は「雑談」）
   const [currentCategory, setCurrentCategory] = useState('すべて');
 
   // chモード用ステート
@@ -96,7 +103,6 @@ export default function KotodamaBoard() {
   const [editNameInput, setEditNameInput] = useState(account.name);
   const [editHandleInput, setEditHandleInput] = useState(account.handle);
 
-  // マイページモーダル & タブステート
   const [isMyPageOpen, setIsMyPageOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [myPageTab, setMyPageTab] = useState<'activity' | 'ranking' | 'settings'>('activity');
@@ -112,16 +118,16 @@ export default function KotodamaBoard() {
 
   const [newComment, setNewComment] = useState('');
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
-const [paletteTab, setPaletteTab] = useState<'emoji' | 'aa' | 'svg'>('emoji');
+  const [paletteTab, setPaletteTab] = useState<'emoji' | 'aa' | 'svg'>('emoji');
 
-const insertToInput = (text: string, targetId?: number) => {
-  if (targetId) {
-    setReplyInputs(prev => ({ ...prev, [targetId]: (prev[targetId] || '') + text }));
-  } else {
-    setNewComment(prev => prev + text);
-  }
-  setIsPaletteOpen(false);
-};
+  const insertToInput = (text: string, targetId?: number) => {
+    if (targetId) {
+      setReplyInputs(prev => ({ ...prev, [targetId]: (prev[targetId] || '') + text }));
+    } else {
+      setNewComment(prev => prev + text);
+    }
+    setIsPaletteOpen(false);
+  };
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [selectedLang, setSelectedLang] = useState('ja');
@@ -132,7 +138,6 @@ const insertToInput = (text: string, targetId?: number) => {
   const langDropdownRef = useRef<HTMLDivElement>(null);
   const newThreadFormRef = useRef<HTMLDivElement>(null);
 
-  // Zモード専用SNS機能（フォロー・DMタブ）ステート
   const [zTab, setZTab] = useState<'timeline' | 'following' | 'dm'>('timeline');
   const [selectedUserForTimeline, setSelectedUserForTimeline] = useState<string | null>(null);
   const [followingList, setFollowingList] = useState<string[]>([]);
@@ -150,7 +155,7 @@ const insertToInput = (text: string, targetId?: number) => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-// 管理画面などでモードやカテゴリーが変更された際のイベント検知
+
   useEffect(() => {
     const handleStorageChange = () => {
       if (!getIsMockMode()) {
@@ -169,6 +174,7 @@ const insertToInput = (text: string, targetId?: number) => {
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
+
   const [activePostId, setActivePostId] = useState<number | null>(null);
   const [isBookmarkView, setIsBookmarkView] = useState(false);
 
@@ -183,7 +189,6 @@ const insertToInput = (text: string, targetId?: number) => {
   const [userReposts, setUserReposts] = useState<{ [key: number]: boolean }>({});
   const [userBookmarks, setUserBookmarks] = useState<{ [key: number]: boolean }>({});
 
-  // 編集用ステート
   const [editingReplyKey, setEditingReplyKey] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
@@ -381,25 +386,22 @@ const insertToInput = (text: string, targetId?: number) => {
     }
   };
 
- const fetchPosts = async () => {
-  let query = supabase
-    .from('posts')
-    .select('*')
-    .order('id', { ascending: true });
+  const fetchPosts = async () => {
+    let query = supabase
+      .from('posts')
+      .select('*')
+      .order('id', { ascending: true });
 
-  // 「すべて」以外のときだけカテゴリーで絞り込む
-  if (currentCategory && currentCategory !== 'すべて') {
-    query = query.eq('category', currentCategory);
-  }
+    if (currentCategory && currentCategory !== 'すべて') {
+      query = query.eq('category', currentCategory);
+    }
 
-  const { data: postsData, error: postsError } = await query;
+    const { data: postsData, error: postsError } = await query;
 
-  if (postsError) {
-    console.error('データ取得エラー:', postsError);
-    return;
-  }
-
-  // 以降の集計・セット処理...
+    if (postsError) {
+      console.error('データ取得エラー:', postsError);
+      return;
+    }
 
     const { data: repostsData } = await supabase.from('reposts').select('*');
     const allReposts = repostsData || [];
@@ -485,18 +487,15 @@ const insertToInput = (text: string, targetId?: number) => {
       fetchPosts();
     }
   };
-// スレッドを開いたときに閲覧数を +1 する関数
+
   const handleOpenEnjoyThread = async (thread: Reply) => {
     const newViews = (thread.views || 0) + 1;
-    
-    // 1. データベース上の views を更新
     await supabase.from('posts').update({ views: newViews }).eq('id', thread.id);
-    
-    // 2. 画面側の状態を更新
     setReplies(prev => prev.map(r => r.id === thread.id ? { ...r, views: newViews } : r));
     setEnjoySelectedThreadId(thread.id);
     setEnjoyViewMode('detail');
   };
+
   const handleRepost = async (reply: Reply, e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -883,22 +882,18 @@ ${replyText}`;
     fetchPosts();
   };
 
-  // 現在選択されているカテゴリー、お気に入り、モードに一致する親ポストをフィルタリング
   const mainReplies = replies.filter(r => {
     if (r.parentId) return false;
 
-    // お気に入り表示中の場合
     if (isBookmarkView) {
       return userBookmarks[r.id] === true;
     }
 
-    // 「すべて」以外のときだけカテゴリーで絞り込む
     const postCategory = r.category || '雑談';
     if (currentCategory !== 'すべて' && postCategory !== currentCategory) {
       return false;
     }
 
-    // モードごとのフィルター
     if (theme === 'channel' && r.targetMode !== 'all' && r.targetMode !== 'channel') return false;
     if (theme === 'enjoy' && r.targetMode !== 'all' && r.targetMode !== 'enjoy') return false;
     if (theme === 'z') {
@@ -1066,7 +1061,9 @@ ${replyText}`;
                       </div>
                     </div>
                   ) : (
-                    <p className={`text-xs leading-relaxed whitespace-pre-wrap ${theme === 'z' ? 'text-[#e7e9ea]' : 'text-gray-800'}`}>{child.content}</p>
+                    <div className={`text-xs leading-relaxed ${theme === 'z' ? 'text-[#e7e9ea]' : 'text-gray-800'}`}>
+                      <SafeSvgContent content={child.content} size="full" />
+                    </div>
                   )}
 
                   {child.mediaUrl && (
@@ -1155,7 +1152,6 @@ ${replyText}`;
     }
   };
 
-  // ランキング集計用
   const rankingPosts = [...replies.filter(r => !r.parentId)].map(post => {
     const childCount = replies.filter(r => r.parentId === post.id).length;
     return {
@@ -1216,13 +1212,13 @@ ${replyText}`;
             </button>
           </div>
 
-<div className="flex items-center gap-1.5 border-l border-gray-700 pl-3">
-  <span className="text-gray-400 hidden sm:inline">モード切替:</span>
-  <button onClick={() => setTheme('channel')} className={`px-2.5 py-1 rounded transition cursor-pointer ${theme === 'channel' ? 'bg-red-600 font-bold text-white' : 'bg-gray-800 text-gray-300'}`}>chモード</button>
-  <button onClick={() => setTheme('enjoy')} className={`px-2.5 py-1 rounded transition cursor-pointer ${theme === 'enjoy' ? 'bg-[#007e59] font-bold text-white' : 'bg-gray-800 text-gray-300'}`}>enjoyモード</button>
-  <button onClick={() => setTheme('z')} className={`px-2.5 py-1 rounded transition cursor-pointer ${theme === 'z' ? 'bg-sky-500 font-bold text-white' : 'bg-gray-800 text-gray-300'}`}>Zモード</button>
-  <button onClick={() => setTheme('chat')} className={`px-2.5 py-1 rounded transition cursor-pointer ${theme === 'chat' ? 'bg-[#c1440e] font-bold text-white' : 'bg-gray-800 text-gray-300'}`}>柿色チャット</button>
-</div>
+          <div className="flex items-center gap-1.5 border-l border-gray-700 pl-3">
+            <span className="text-gray-400 hidden sm:inline">モード切替:</span>
+            <button onClick={() => setTheme('channel')} className={`px-2.5 py-1 rounded transition cursor-pointer ${theme === 'channel' ? 'bg-red-600 font-bold text-white' : 'bg-gray-800 text-gray-300'}`}>chモード</button>
+            <button onClick={() => setTheme('enjoy')} className={`px-2.5 py-1 rounded transition cursor-pointer ${theme === 'enjoy' ? 'bg-[#007e59] font-bold text-white' : 'bg-gray-800 text-gray-300'}`}>enjoyモード</button>
+            <button onClick={() => setTheme('z')} className={`px-2.5 py-1 rounded transition cursor-pointer ${theme === 'z' ? 'bg-sky-500 font-bold text-white' : 'bg-gray-800 text-gray-300'}`}>Zモード</button>
+            <button onClick={() => setTheme('chat')} className={`px-2.5 py-1 rounded transition cursor-pointer ${theme === 'chat' ? 'bg-[#c1440e] font-bold text-white' : 'bg-gray-800 text-gray-300'}`}>柿色チャット</button>
+          </div>
         </div>
       </div>
 
@@ -1293,13 +1289,9 @@ ${replyText}`;
                               [削除]
                             </button>
                           </div>
-                          {post.content.trim().startsWith('<svg') ? (
-  <div className="w-12 h-12 my-1">
-    <SafeSvgContent content={post.content} />
-  </div>
-) : (
-  <p className="whitespace-pre-wrap text-black text-xs">{post.content}</p>
-)}
+                          <div className="text-black text-xs">
+                            <SafeSvgContent content={post.content} size="full" />
+                          </div>
                           {post.mediaUrl && renderMedia(post.mediaUrl, post.mediaType || 'image')}
                         </div>
                       ))
@@ -1356,7 +1348,9 @@ ${replyText}`;
                                   {idx + 1}
                                 </span>
                                 <div className="truncate flex-1">
-                                  <div className="font-bold text-blue-900 truncate">{titleText}</div>
+                                  <div className="font-bold text-blue-900 truncate">
+                                    <SafeSvgContent content={titleText} size="thumb" />
+                                  </div>
                                   <div className="text-[10px] text-gray-500">
                                     投稿者: {post.author} ({post.category || '雑談'})
                                   </div>
@@ -1425,7 +1419,7 @@ ${replyText}`;
                 <span className="text-xs font-bold text-gray-800 flex items-center gap-2">
                   <span>🤖</span> Gemini 翻訳アシスタント
                 </span>
-                <button onClick={() => setIsTranslateModalOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg font-bold">✕</button>
+                <button onClick={() => setIsTranslateModalOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg font-bold cursor-pointer">✕</button>
               </div>
 
               <div className="p-5 overflow-y-auto space-y-4 text-xs">
@@ -1509,20 +1503,20 @@ ${replyText}`;
                 <div className="font-bold text-[#800000] border-b border-[#c0c0c0] pb-1">■ カテゴリー一覧</div>
                 <div className="space-y-1">
                   {categories.map((catName) => (
-  <button
-    key={catName}
-    onClick={() => {
-      setCurrentCategory(catName);
-      setIsBookmarkView(false); // ← ここを追加！
-    }}
-    className={`block w-full text-left px-1.5 py-1 rounded cursor-pointer truncate ${currentCategory === catName ? 'bg-[#800000] text-white font-bold' : 'text-blue-900 hover:underline'}`}
-  >
-    ・{catName}
-  </button>
-))}
+                    <button
+                      key={catName}
+                      onClick={() => {
+                        setCurrentCategory(catName);
+                        setIsBookmarkView(false);
+                      }}
+                      className={`block w-full text-left px-1.5 py-1 rounded cursor-pointer truncate ${currentCategory === catName ? 'bg-[#800000] text-white font-bold' : 'text-blue-900 hover:underline'}`}
+                    >
+                      ・{catName}
+                    </button>
+                  ))}
                 </div>
                 <div className="border-t border-gray-300 pt-2 space-y-1">
-                  <button onClick={() => setIsBookmarkView(!isBookmarkView)} className="text-blue-900 font-bold hover:underline block">
+                  <button onClick={() => setIsBookmarkView(!isBookmarkView)} className="text-blue-900 font-bold hover:underline block cursor-pointer">
                     {isBookmarkView ? '・板に戻る' : '⭐ お気に入り'}
                   </button>
                 </div>
@@ -1559,24 +1553,22 @@ ${replyText}`;
                           : thread.content.split('\n')[0];
 
                         return (
-                          <div className="truncate flex items-center justify-between gap-1">
-  <div className="truncate flex items-center gap-1">
-    <span>{idx + 1}:</span>
-    {threadTitleText.startsWith('<svg') ? (
-      <div className="w-6 h-6 inline-flex items-center">
-        <SafeSvgContent content={threadTitleText} />
-      </div>
-    ) : (
-      <span className="truncate">{threadTitleText}</span>
-    )}
-    <span className="text-gray-500 font-normal">({threadCount})</span>
-  </div>
-  {thread.mediaUrl && (
-    <span className="bg-sky-100 text-sky-800 px-1 rounded text-[10px] font-bold shrink-0">
-      {thread.mediaType === 'video' ? '🎬動画' : '🖼️画像'}
-    </span>
-  )}
-</div>
+                          <div 
+                            key={thread.id} 
+                            onClick={() => setSelectedJaneThreadId(thread.id)}
+                            className="truncate flex items-center justify-between gap-1 cursor-pointer hover:text-blue-600 transition py-0.5"
+                          >
+                            <div className="truncate flex items-center gap-1">
+                              <span>{idx + 1}:</span>
+                              <SafeSvgContent content={threadTitleText} size="thumb" />
+                              <span className="text-gray-500 font-normal">({threadCount})</span>
+                            </div>
+                            {thread.mediaUrl && (
+                              <span className="bg-sky-100 text-sky-800 px-1 rounded text-[10px] font-bold shrink-0">
+                                {thread.mediaType === 'video' ? '🎬動画' : '🖼️画像'}
+                              </span>
+                            )}
+                          </div>
                         );
                       })}
                   </div>
@@ -1585,10 +1577,12 @@ ${replyText}`;
                 {selectedThread ? (
                   <div className="border border-[#c0c0c0] bg-white p-4 rounded space-y-4 shadow-sm">
                     <div className="border-b-2 border-[#800000] pb-2 flex justify-between items-center">
-                      <h2 className="text-sm font-bold text-[#800000]">
-                        {selectedThread.content.startsWith('【') && selectedThread.content.includes('】\n') 
-                          ? selectedThread.content.split('】\n')[0].replace('【', '') 
-                          : selectedThread.content.split('\n')[0]}
+                      <h2 className="text-sm font-bold text-[#800000] flex items-center gap-1">
+                        <SafeSvgContent content={
+                          selectedThread.content.startsWith('【') && selectedThread.content.includes('】\n') 
+                            ? selectedThread.content.split('】\n')[0].replace('【', '') 
+                            : selectedThread.content.split('\n')[0]
+                        } size="thumb" />
                       </h2>
                       <div className="flex items-center gap-2">
                         {account.isLoggedIn && account.handle === selectedThread.handle && editingReplyKey !== `reply-${selectedThread.id}` && (
@@ -1605,10 +1599,10 @@ ${replyText}`;
                             }
                             setEditMediaUrl(selectedThread.mediaUrl || ''); 
                             setEditMediaType(selectedThread.mediaType || 'image'); 
-                          }} className="text-blue-800 text-[11px] hover:underline">[修正]</button>
+                          }} className="text-blue-800 text-[11px] hover:underline cursor-pointer">[修正]</button>
                         )}
                         {account.isLoggedIn && account.handle === selectedThread.handle && (
-                          <button onClick={(e) => handleDelete(selectedThread.id, selectedThread.handle, e)} className="text-red-600 text-[11px] hover:underline">[削除]</button>
+                          <button onClick={(e) => handleDelete(selectedThread.id, selectedThread.handle, e)} className="text-red-600 text-[11px] hover:underline cursor-pointer">[削除]</button>
                         )}
                       </div>
                     </div>
@@ -1625,7 +1619,7 @@ ${replyText}`;
                             )}
                           </div>
                           <div className="flex gap-2 font-sans items-center">
-                            <button onClick={(e) => handleOpenTranslateModal(selectedThread.content, e)} className="text-indigo-600 font-bold hover:underline">✨翻訳</button>
+                            <button onClick={(e) => handleOpenTranslateModal(selectedThread.content, e)} className="text-indigo-600 font-bold hover:underline cursor-pointer">✨翻訳</button>
                             {renderBookmarkStampButton(selectedThread.id)}
                           </div>
                         </div>
@@ -1653,7 +1647,13 @@ ${replyText}`;
                             </div>
                           </div>
                         ) : (
-                          <div className="pl-2 pt-1 whitespace-pre-wrap text-black">{selectedThread.content}</div>
+                          <div className="pl-2 pt-1 text-black font-sans">
+                            <SafeSvgContent content={
+                              selectedThread.content.startsWith('【') && selectedThread.content.includes('】\n')
+                                ? selectedThread.content.split('】\n')[1]
+                                : selectedThread.content
+                            } size="full" />
+                          </div>
                         )}
 
                         {selectedThread.mediaUrl && renderMedia(selectedThread.mediaUrl, selectedThread.mediaType || 'image')}
@@ -1681,11 +1681,11 @@ ${replyText}`;
                                     setEditContent(child.content); 
                                     setEditMediaUrl(child.mediaUrl || ''); 
                                     setEditMediaType(child.mediaType || 'image'); 
-                                  }} className="text-blue-800 hover:underline">[修正]</button>
+                                  }} className="text-blue-800 hover:underline cursor-pointer">[修正]</button>
                                 )}
-                                <button onClick={(e) => handleOpenTranslateModal(child.content, e)} className="text-indigo-600 font-bold hover:underline">✨翻訳</button>
+                                <button onClick={(e) => handleOpenTranslateModal(child.content, e)} className="text-indigo-600 font-bold hover:underline cursor-pointer">✨翻訳</button>
                                 {isMyChildPost && (
-                                  <button onClick={(e) => handleDelete(child.id, child.handle, e)} className="text-red-500 hover:underline">[削除]</button>
+                                  <button onClick={(e) => handleDelete(child.id, child.handle, e)} className="text-red-500 hover:underline cursor-pointer">[削除]</button>
                                 )}
                                 {renderBookmarkStampButton(child.id)}
                               </div>
@@ -1707,7 +1707,9 @@ ${replyText}`;
                                 </div>
                               </div>
                             ) : (
-                              <div className="pl-2 pt-1 whitespace-pre-wrap text-black">{child.content}</div>
+                              <div className="pl-2 pt-1 text-black font-sans">
+                                <SafeSvgContent content={child.content} size="full" />
+                              </div>
                             )}
 
                             {child.mediaUrl && renderMedia(child.mediaUrl, child.mediaType || 'image')}
@@ -1856,10 +1858,7 @@ ${replyText}`;
            ========================================================= */}
         {theme === 'enjoy' && (
           <div className="bg-[#fbfbfb] flex-1 text-gray-800">
-            {/* ヘッダーナビゲーションバー */}
             <div className="border-b border-gray-300 px-6 py-3 flex items-center justify-between bg-white shadow-xs gap-4">
-              
-              {/* 1. 左側：enjoy mode ロゴ（英語表記・小文字） */}
               <div 
                 onClick={() => { 
                   setCurrentCategory('すべて'); 
@@ -1872,7 +1871,6 @@ ${replyText}`;
                 enjoy mode
               </div>
 
-              {/* 2. 中央：検索窓（ゆったり中央に配置） */}
               <div className="flex-1 max-w-md mx-auto">
                 <div className="flex items-center gap-2 bg-gray-100 border border-gray-300 px-3 py-1.5 rounded-full focus-within:border-emerald-600 focus-within:bg-white transition shadow-inner">
                   <span className="text-gray-400 text-xs pl-1">🔍</span>
@@ -1884,7 +1882,6 @@ ${replyText}`;
                 </div>
               </div>
 
-              {/* 3. 右端：お気に入り一覧 */}
               <div className="shrink-0">
                 <button 
                   onClick={() => setIsBookmarkView(!isBookmarkView)} 
@@ -1905,18 +1902,18 @@ ${replyText}`;
                 <div className="font-bold text-[#1b5e20] border-b border-gray-300 pb-1">カテゴリー一覧</div>
                 <div className="space-y-1">
                   {categories.map((catName) => (
-  <button
-    key={catName}
-    onClick={() => { 
-      setCurrentCategory(catName); 
-      setEnjoyViewMode('list'); 
-      setIsBookmarkView(false); // ← ここを追加！
-    }}
-    className={`w-full text-left px-2 py-1 rounded flex justify-between items-center transition cursor-pointer truncate ${currentCategory === catName ? 'bg-[#1b5e20] text-white font-bold' : 'hover:bg-emerald-50 text-gray-700'}`}
-  >
-    <span className="truncate">・{catName}</span>
-  </button>
-))}
+                    <button
+                      key={catName}
+                      onClick={() => { 
+                        setCurrentCategory(catName); 
+                        setEnjoyViewMode('list'); 
+                        setIsBookmarkView(false);
+                      }}
+                      className={`w-full text-left px-2 py-1 rounded flex justify-between items-center transition cursor-pointer truncate ${currentCategory === catName ? 'bg-[#1b5e20] text-white font-bold' : 'hover:bg-emerald-50 text-gray-700'}`}
+                    >
+                      <span className="truncate">・{catName}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -1925,7 +1922,7 @@ ${replyText}`;
                   <div className="border border-gray-300 bg-[#fdfdf9] p-5 rounded-lg space-y-4 shadow-sm">
                     <div className="flex justify-between items-center border-b pb-2">
                       <h2 className="font-bold text-sm text-[#1b5e20]">◆ 新規トピック・書き込み (カテゴリー: {currentCategory})</h2>
-                      <button onClick={() => setEnjoyViewMode('list')} className="text-gray-600 hover:underline">← 一覧に戻る</button>
+                      <button onClick={() => setEnjoyViewMode('list')} className="text-gray-600 hover:underline cursor-pointer">← 一覧に戻る</button>
                     </div>
 
                     <form onSubmit={handlePost} className="space-y-3">
@@ -1992,23 +1989,23 @@ ${replyText}`;
                               }
                               setEditMediaUrl(selectedEnjoyThread.mediaUrl || ''); 
                               setEditMediaType(selectedEnjoyThread.mediaType || 'image'); 
-                            }} className="text-blue-700 font-bold hover:underline text-xs">[✏️ 編集]</button>
+                            }} className="text-blue-700 font-bold hover:underline text-xs cursor-pointer">[✏️ 編集]</button>
                           )}
-                          <button onClick={(e) => handleDelete(selectedEnjoyThread.id, selectedEnjoyThread.handle, e)} className="text-red-600 font-bold hover:underline">[トピック削除]</button>
+                          <button onClick={(e) => handleDelete(selectedEnjoyThread.id, selectedEnjoyThread.handle, e)} className="text-red-600 font-bold hover:underline cursor-pointer">[トピック削除]</button>
                         </div>
                       )}
                     </div>
 
                     <div className="border border-gray-300 bg-white p-5 rounded-lg space-y-4 shadow-xs">
                       <h2 className="text-base font-bold text-gray-900 border-b pb-2 flex items-center justify-between">
-  <div className="flex items-center">
-    {(() => {
-      const tText = selectedEnjoyThread.content.startsWith('【') && selectedEnjoyThread.content.includes('】\n') 
-        ? selectedEnjoyThread.content.split('】\n')[0].replace('【', '') 
-        : selectedEnjoyThread.content.split('\n')[0];
-      return tText.startsWith('<svg') ? <SafeSvgContent content={tText} /> : <span>{tText}</span>;
-    })()}
-  </div>
+                        <div className="flex items-center">
+                          {(() => {
+                            const tText = selectedEnjoyThread.content.startsWith('【') && selectedEnjoyThread.content.includes('】\n') 
+                              ? selectedEnjoyThread.content.split('】\n')[0].replace('【', '') 
+                              : selectedEnjoyThread.content.split('\n')[0];
+                            return <SafeSvgContent content={tText} size="thumb" />;
+                          })()}
+                        </div>
                         {selectedEnjoyThread.mediaUrl && (
                           <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-xs font-bold">
                             {selectedEnjoyThread.mediaType === 'video' ? '🎬 動画付き' : '🖼️ 画像付き'}
@@ -2023,7 +2020,7 @@ ${replyText}`;
                             <span>投稿者: <b>{selectedEnjoyThread.author}</b> ({selectedEnjoyThread.date})</span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <button onClick={(e) => handleOpenTranslateModal(selectedEnjoyThread.content, e)} className="text-indigo-600 font-bold hover:underline">✨ 翻訳</button>
+                            <button onClick={(e) => handleOpenTranslateModal(selectedEnjoyThread.content, e)} className="text-indigo-600 font-bold hover:underline cursor-pointer">✨ 翻訳</button>
                             {renderBookmarkStampButton(selectedEnjoyThread.id)}
                           </div>
                         </div>
@@ -2046,16 +2043,18 @@ ${replyText}`;
                               <input type="text" value={editMediaUrl} onChange={(e) => setEditMediaUrl(e.target.value)} placeholder="メディアURL..." className="flex-1 border rounded p-1 text-xs bg-white text-black" />
                             </div>
                             <div className="flex justify-end gap-2">
-                              <button onClick={() => setEditingReplyKey(null)} className="px-3 py-1 bg-gray-200 text-gray-700 rounded text-xs">キャンセル</button>
-                              <button onClick={() => handleSaveEdit(selectedEnjoyThread.id, selectedEnjoyThread.handle, true)} className="px-4 py-1 bg-emerald-700 text-white font-bold rounded text-xs">編集を保存</button>
+                              <button onClick={() => setEditingReplyKey(null)} className="px-3 py-1 bg-gray-200 text-gray-700 rounded text-xs cursor-pointer">キャンセル</button>
+                              <button onClick={() => handleSaveEdit(selectedEnjoyThread.id, selectedEnjoyThread.handle, true)} className="px-4 py-1 bg-emerald-700 text-white font-bold rounded text-xs cursor-pointer">編集を保存</button>
                             </div>
                           </div>
                         ) : (
-                          <p className="text-sm leading-relaxed whitespace-pre-wrap text-gray-800">
-                            {selectedEnjoyThread.content.startsWith('【') && selectedEnjoyThread.content.includes('】\n')
-                              ? selectedEnjoyThread.content.split('】\n')[1]
-                              : selectedEnjoyThread.content}
-                          </p>
+                          <div className="text-sm leading-relaxed text-gray-800">
+                            <SafeSvgContent content={
+                              selectedEnjoyThread.content.startsWith('【') && selectedEnjoyThread.content.includes('】\n')
+                                ? selectedEnjoyThread.content.split('】\n')[1]
+                                : selectedEnjoyThread.content
+                            } size="full" />
+                          </div>
                         )}
 
                         {selectedEnjoyThread.mediaUrl && (
@@ -2065,8 +2064,8 @@ ${replyText}`;
                         )}
 
                         <div className="flex gap-2 pt-2 border-t">
-                          <button onClick={(e) => handleZVote(selectedEnjoyThread.id, 'like', e)} className="px-3 py-1 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded text-[11px] hover:bg-emerald-100">👍 推薦投票 ({selectedEnjoyThread.likes})</button>
-                          <button onClick={(e) => handleZVote(selectedEnjoyThread.id, 'dislike', e)} className="px-3 py-1 bg-red-50 border border-red-300 text-red-800 rounded text-[11px] hover:bg-red-100">👎 反対投票 ({selectedEnjoyThread.dislikes})</button>
+                          <button onClick={(e) => handleZVote(selectedEnjoyThread.id, 'like', e)} className="px-3 py-1 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded text-[11px] hover:bg-emerald-100 cursor-pointer">👍 推薦投票 ({selectedEnjoyThread.likes})</button>
+                          <button onClick={(e) => handleZVote(selectedEnjoyThread.id, 'dislike', e)} className="px-3 py-1 bg-red-50 border border-red-300 text-red-800 rounded text-[11px] hover:bg-red-100 cursor-pointer">👎 反対投票 ({selectedEnjoyThread.dislikes})</button>
                         </div>
                       </div>
 
@@ -2086,13 +2085,15 @@ ${replyText}`;
                                   )}
                                 </span>
                                 <div className="flex gap-2 items-center">
-                                  <button onClick={(e) => handleOpenTranslateModal(child.content, e)} className="text-indigo-600 font-bold">✨翻訳</button>
+                                  <button onClick={(e) => handleOpenTranslateModal(child.content, e)} className="text-indigo-600 font-bold cursor-pointer">✨翻訳</button>
                                   {isMyEnjoyChild && (
-                                    <button onClick={(e) => handleDelete(child.id, child.handle, e)} className="text-red-500">[削除]</button>
+                                    <button onClick={(e) => handleDelete(child.id, child.handle, e)} className="text-red-500 cursor-pointer">[削除]</button>
                                   )}
                                 </div>
                               </div>
-                              <p className="text-xs text-gray-800 whitespace-pre-wrap">{child.content}</p>
+                              <div className="text-xs text-gray-800">
+                                <SafeSvgContent content={child.content} size="full" />
+                              </div>
                               {child.mediaUrl && renderMedia(child.mediaUrl, child.mediaType || 'image')}
                             </div>
                           );
@@ -2147,46 +2148,39 @@ ${replyText}`;
                         {mainReplies.length === 0 ? (
                           <div className="p-8 text-center text-gray-500">トピックがありません。「書き込み」ボタンから投稿してください。</div>
                         ) : (
-                          <>
-                          {mainReplies.map((reply) => {
-  // チャンネルモードと同じように、親ポスト(1レス目)を含めた総レス数を計算
-  const totalReplies = replies.filter(r => r.parentId === reply.id).length;
-  const titleText = reply.content.startsWith('【') && reply.content.includes('】\n')
-    ? reply.content.split('】\n')[0].replace('【', '')
-    : reply.content.split('\n')[0];
+                          mainReplies.map((reply) => {
+                            const totalReplies = replies.filter(r => r.parentId === reply.id).length;
+                            const titleText = reply.content.startsWith('【') && reply.content.includes('】\n')
+                              ? reply.content.split('】\n')[0].replace('【', '')
+                              : reply.content.split('\n')[0];
 
-  return (
-    <div 
-      key={reply.id} 
-      onClick={() => handleOpenEnjoyThread(reply)}
-      className="grid grid-cols-12 p-2.5 items-center hover:bg-emerald-50/40 transition cursor-pointer"
-    >
-      <div className="col-span-7 flex items-center justify-between truncate pr-2 font-bold text-blue-900">
-        <div className="flex items-center gap-2 truncate">
-  <span>🟥</span>
-  <div className="truncate flex items-center">
-    {titleText.startsWith('<svg') ? (
-      <SafeSvgContent content={titleText} />
-    ) : (
-      <span className="truncate">{titleText}</span>
-    )}
-  </div>
-  <span className="text-[10px] text-gray-500 font-normal">({totalReplies})</span>
-</div>
-        {reply.mediaUrl && (
-          <span className="bg-emerald-100 text-emerald-800 px-1 rounded text-[10px] font-bold shrink-0">
-            {reply.mediaType === 'video' ? '🎬動画' : '🖼️画像'}
-          </span>
-        )}
-      </div>
-      <div className="col-span-3 text-gray-600 truncate">{reply.author}</div>
-      <div className="col-span-2 text-center text-gray-500 text-[11px]">
-        <span className="font-semibold text-gray-700">{reply.views || 0}</span> / {reply.likes || 0}
-      </div>
-    </div>
-  );
-})}
-</>
+                            return (
+                              <div 
+                                key={reply.id} 
+                                onClick={() => handleOpenEnjoyThread(reply)}
+                                className="grid grid-cols-12 p-2.5 items-center hover:bg-emerald-50/40 transition cursor-pointer"
+                              >
+                                <div className="col-span-7 flex items-center justify-between truncate pr-2 font-bold text-blue-900">
+                                  <div className="flex items-center gap-2 truncate">
+                                    <span>🟥</span>
+                                    <div className="truncate flex items-center">
+                                      <SafeSvgContent content={titleText} size="thumb" />
+                                    </div>
+                                    <span className="text-[10px] text-gray-500 font-normal">({totalReplies})</span>
+                                  </div>
+                                  {reply.mediaUrl && (
+                                    <span className="bg-emerald-100 text-emerald-800 px-1 rounded text-[10px] font-bold shrink-0">
+                                      {reply.mediaType === 'video' ? '🎬動画' : '🖼️画像'}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="col-span-3 text-gray-600 truncate">{reply.author}</div>
+                                <div className="col-span-2 text-center text-gray-500 text-[11px]">
+                                  <span className="font-semibold text-gray-700">{reply.views || 0}</span> / {reply.likes || 0}
+                                </div>
+                              </div>
+                            );
+                          })
                         )}
                       </div>
                     </div>
@@ -2212,27 +2206,26 @@ ${replyText}`;
            ========================================================= */}
         {theme === 'z' && (
           <div className="grid grid-cols-1 md:grid-cols-4 flex-1">
-            {/* 左サイドバー */}
             <div className="border-r border-[#2f3336] p-4 hidden md:flex flex-col justify-between space-y-4 sticky top-12 h-[calc(100vh-3rem)] overflow-y-auto">
               <div className="space-y-3">
                 <div className="text-xl font-black px-3 text-sky-400 tracking-wider">𝕫 言霊</div>
                 <nav className="space-y-1 text-sm font-bold">
                   <div onClick={() => { 
-  setCurrentCategory('すべて');
-  setActivePostId(null);         
-  setIsBookmarkView(false);      
-  setZTab('timeline');           
-  setSelectedUserForTimeline(null); 
-}} className="p-3 hover:bg-[#181818] rounded-full cursor-pointer flex items-center gap-4 text-white transition">
-  🏠 ホーム
-</div>
+                    setCurrentCategory('すべて');
+                    setActivePostId(null);         
+                    setIsBookmarkView(false);      
+                    setZTab('timeline');           
+                    setSelectedUserForTimeline(null); 
+                  }} className="p-3 hover:bg-[#181818] rounded-full cursor-pointer flex items-center gap-4 text-white transition">
+                    🏠 ホーム
+                  </div>
                   <div onClick={() => { 
-  setActivePostId(null); 
-  setZTab('timeline'); 
-  setIsBookmarkView(true); 
-}} className={`p-3 rounded-full cursor-pointer flex items-center gap-4 transition ${isBookmarkView ? 'bg-pink-500/20 text-pink-400 font-extrabold' : 'hover:bg-[#181818] text-gray-300'}`}>
-  <span>⭐</span> お気に入りスタンプ一覧
-</div>
+                    setActivePostId(null); 
+                    setZTab('timeline'); 
+                    setIsBookmarkView(true); 
+                  }} className={`p-3 rounded-full cursor-pointer flex items-center gap-4 transition ${isBookmarkView ? 'bg-pink-500/20 text-pink-400 font-extrabold' : 'hover:bg-[#181818] text-gray-300'}`}>
+                    <span>⭐</span> お気に入りスタンプ一覧
+                  </div>
                   <div onClick={() => { setActivePostId(null); setIsBookmarkView(false); setZTab('following'); }} className={`p-3 rounded-full cursor-pointer flex items-center gap-4 transition ${zTab === 'following' ? 'bg-sky-500/20 text-sky-400 font-extrabold' : 'hover:bg-[#181818] text-gray-300'}`}>
                     <span>👥</span> フォロー中 ({followingList.length})
                   </div>
@@ -2248,11 +2241,11 @@ ${replyText}`;
                       <div
                         key={catName}
                         onClick={() => {
-  setCurrentCategory(catName);
-  setSelectedUserForTimeline(null);
-  setIsBookmarkView(false); // ← 追加：お気に入り表示を強制解除
-  setZTab('timeline');      // ← 追加：フォロー中やDMからタイムラインへ復帰
-}}
+                          setCurrentCategory(catName);
+                          setSelectedUserForTimeline(null);
+                          setIsBookmarkView(false);
+                          setZTab('timeline');
+                        }}
                         className={`px-3 py-2 rounded-xl cursor-pointer text-xs font-bold transition flex justify-between items-center truncate ${
                           currentCategory === catName ? 'bg-sky-500/20 text-sky-400 border border-sky-500/40' : 'text-gray-300 hover:bg-[#181818]'
                         }`}
@@ -2274,7 +2267,6 @@ ${replyText}`;
               </div>
             </div>
 
-            {/* 中央タイムライン・詳細エリア または DM画面 */}
             <div className="md:col-span-2 border-r border-[#2f3336] min-h-screen">
               <div className="border-b border-[#2f3336] flex font-bold text-xs bg-black/80 backdrop-blur sticky top-12 z-10 justify-around items-center px-2 py-3">
                 <button
@@ -2297,7 +2289,6 @@ ${replyText}`;
                 </button>
               </div>
 
-              {/* DM画面 */}
               {zTab === 'dm' && !activePostId && !isBookmarkView ? (
                 <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 bg-black min-h-[500px]">
                   <div className="border-r border-[#2f3336] pr-3 space-y-2">
@@ -2346,7 +2337,7 @@ ${replyText}`;
                               return (
                                 <div key={dm.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
                                   <div className={`max-w-[80%] px-3.5 py-2 rounded-2xl text-xs leading-relaxed ${isMe ? 'bg-sky-500 text-white rounded-br-none font-medium' : 'bg-[#16181c] text-gray-200 border border-[#2f3336] rounded-bl-none'}`}>
-                                    {dm.message}
+                                    <SafeSvgContent content={dm.message} size="full" />
                                   </div>
                                   <span className="text-[9px] text-gray-500 mt-0.5">
                                     {new Date(dm.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -2446,7 +2437,6 @@ ${replyText}`;
                     </div>
                   )}
 
-                  {/* タイムライン・詳細表示 */}
                   <div className="divide-y divide-[#2f3336]">
                     {activePostId ? (
                       (() => {
@@ -2520,12 +2510,14 @@ ${replyText}`;
                                       <input type="text" value={editMediaUrl} onChange={(e) => setEditMediaUrl(e.target.value)} placeholder="メディアURL..." className="flex-1 bg-black text-white border border-[#2f3336] p-1 rounded text-xs" />
                                     </div>
                                     <div className="flex justify-end gap-2">
-                                      <button onClick={() => setEditingReplyKey(null)} className="px-3 py-1 bg-gray-800 text-gray-300 rounded-full text-xs">キャンセル</button>
-                                      <button onClick={() => handleSaveEdit(post.id, post.handle, false)} className="px-4 py-1 bg-sky-500 text-white font-bold rounded-full text-xs">保存</button>
+                                      <button onClick={() => setEditingReplyKey(null)} className="px-3 py-1 bg-gray-800 text-gray-300 rounded-full text-xs cursor-pointer">キャンセル</button>
+                                      <button onClick={() => handleSaveEdit(post.id, post.handle, false)} className="px-4 py-1 bg-sky-500 text-white font-bold rounded-full text-xs cursor-pointer">保存</button>
                                     </div>
                                   </div>
                                 ) : (
-                                  <p className="text-sm text-[#e7e9ea] leading-relaxed whitespace-pre-wrap pt-1">{post.content}</p>
+                                  <div className="text-sm text-[#e7e9ea] pt-1">
+                                    <SafeSvgContent content={post.content} size="full" />
+                                  </div>
                                 )}
 
                                 {post.mediaUrl && (
@@ -2573,7 +2565,7 @@ ${replyText}`;
                                       className="w-full bg-black text-white border border-[#2f3336] p-2.5 rounded-xl text-xs outline-none resize-none"
                                     />
                                     <div className="flex justify-end gap-2">
-                                      <button onClick={() => setReplyBoxOpen({ ...replyBoxOpen, [post.id]: false })} className="px-3 py-1 bg-gray-800 text-gray-300 rounded-full text-xs">キャンセル</button>
+                                      <button onClick={() => setReplyBoxOpen({ ...replyBoxOpen, [post.id]: false })} className="px-3 py-1 bg-gray-800 text-gray-300 rounded-full text-xs cursor-pointer">キャンセル</button>
                                       <button 
                                         onClick={() => handleReplySubmit(post.id)} 
                                         disabled={isSubmitting}
@@ -2637,7 +2629,9 @@ ${replyText}`;
                                               <span className="text-gray-500">·</span>
                                               <span className="text-gray-500 text-[11px]">{reply.date}</span>
                                             </div>
-                                            <p className="text-sm text-[#e7e9ea] leading-relaxed whitespace-pre-wrap">{reply.content}</p>
+                                            <div className="text-sm text-[#e7e9ea]">
+                                              <SafeSvgContent content={reply.content} size="full" />
+                                            </div>
                                           </div>
                                         </div>
                                       </div>
@@ -2758,7 +2752,9 @@ ${replyText}`;
                                       </div>
                                     </div>
                                   ) : (
-                                    <p className="text-sm text-[#e7e9ea] leading-relaxed whitespace-pre-wrap"></p>
+                                    <div className="text-sm text-[#e7e9ea] pt-1">
+                                      <SafeSvgContent content={reply.content} size="full" />
+                                    </div>
                                   )}
 
                                   {reply.mediaUrl && (
@@ -2769,13 +2765,13 @@ ${replyText}`;
 
                                   <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 pt-2 text-gray-400 text-xs" onClick={(e) => e.stopPropagation()}>
                                     {(() => {
-    const childCount = replies.filter(r => r.parentId === reply.id).length;
-    return (
-      <span className="text-xs font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-md border border-sky-500/20">
-        💬 {childCount} 返信
-      </span>
-    );
-  })()}
+                                      const childCount = replies.filter(r => r.parentId === reply.id).length;
+                                      return (
+                                        <span className="text-xs font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-md border border-sky-500/20">
+                                          💬 {childCount} 返信
+                                        </span>
+                                      );
+                                    })()}
                                     
                                     <button type="button" onClick={(e) => handleOpenTranslateModal(reply.content, e)} className="text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-1 cursor-pointer bg-transparent border-none">
                                       ✨ 翻訳
@@ -2811,7 +2807,7 @@ ${replyText}`;
                                         className="w-full bg-black text-white border border-[#2f3336] p-2 rounded-xl text-xs outline-none resize-none"
                                       />
                                       <div className="flex justify-end gap-2">
-                                        <button onClick={() => setReplyBoxOpen({ ...replyBoxOpen, [reply.id]: false })} className="px-3 py-1 bg-gray-800 text-gray-300 rounded-full text-xs">キャンセル</button>
+                                        <button onClick={() => setReplyBoxOpen({ ...replyBoxOpen, [reply.id]: false })} className="px-3 py-1 bg-gray-800 text-gray-300 rounded-full text-xs cursor-pointer">キャンセル</button>
                                         <button 
                                           onClick={() => handleReplySubmit(reply.id)} 
                                           disabled={isSubmitting}
@@ -2834,7 +2830,6 @@ ${replyText}`;
               )}
             </div>
 
-            {/* 右ウィジェットエリア */}
             <div className="p-4 hidden md:block space-y-4 sticky top-12 h-[calc(100vh-3rem)] overflow-y-auto">
               <div className="bg-[#16181c] p-3 rounded-full border border-[#2f3336] flex items-center gap-3">
                 <span className="text-gray-400 pl-2">🔍</span>
@@ -2859,7 +2854,9 @@ ${replyText}`;
                           <span>第 {idx + 1} 位</span>
                           <span>❤ {p.likesCount} ｲｲﾈ</span>
                         </div>
-                        <p className="text-gray-200 truncate">{p.content}</p>
+                        <div className="text-gray-200 truncate">
+                          <SafeSvgContent content={p.content} size="thumb" />
+                        </div>
                       </div>
                     ))
                   )}
@@ -2875,14 +2872,14 @@ ${replyText}`;
             </div>
           </div>
         )}
-{/* =========================================================
+
+        {/* =========================================================
             【柿色チャットモード専用デザイン】
            ========================================================= */}
         {theme === 'chat' && (
           <div className="min-h-screen bg-[#fff8f3] text-[#3d2b1f] p-4 flex flex-col items-center">
             <div className="w-full max-w-4xl bg-white border-2 border-[#c1440e] rounded-2xl shadow-xl overflow-hidden flex flex-col min-h-[80vh]">
               
-              {/* 柿色ヘッダー */}
               <div className="bg-[#c1440e] text-white p-4 flex justify-between items-center shadow-md">
                 <div className="flex items-center gap-2">
                   <span className="text-xl">柿</span>
@@ -2893,7 +2890,6 @@ ${replyText}`;
                 </span>
               </div>
 
-              {/* チャットタイムライン表示エリア */}
               <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-[#fffaf5]">
                 {mainReplies.map((post) => {
                   const isMyPost = account.isLoggedIn && account.handle === post.handle;
@@ -2904,13 +2900,12 @@ ${replyText}`;
                         <span>{post.date}</span>
                       </div>
                       
-                      {/* 吹き出し */}
                       <div className={`max-w-[80%] p-3.5 rounded-2xl shadow-sm text-xs border ${
                         isMyPost 
                           ? 'bg-[#c1440e] text-white rounded-br-none border-[#a03306]' 
                           : 'bg-[#ffe8d6] text-[#3d2b1f] rounded-bl-none border-[#fcd5b5]'
                       }`}>
-                        <SafeSvgContent content={post.content} />
+                        <SafeSvgContent content={post.content} size="full" />
                         {post.mediaUrl && (
                           <div className="mt-2 rounded-xl overflow-hidden">
                             {renderMedia(post.mediaUrl, post.mediaType || 'image')}
@@ -2918,14 +2913,12 @@ ${replyText}`;
                         )}
                       </div>
 
-                      {/* 返信ツリー */}
                       {renderReplyTree(post.id)}
                     </div>
                   );
                 })}
               </div>
 
-              {/* 投稿フォームエリア（パレット呼び出しボタン付き） */}
               <div className="p-3 bg-[#fff3ea] border-t border-[#fcd5b5] space-y-2">
                 <div className="flex gap-2 items-center">
                   <button
@@ -2937,28 +2930,27 @@ ${replyText}`;
                   </button>
                 </div>
 
-                {/* パレット展開エリア */}
                 {isPaletteOpen && (
                   <div className="p-3 bg-white border border-[#fcd5b5] rounded-xl shadow-inner space-y-2">
                     <div className="flex gap-2 border-b border-gray-200 pb-2 font-bold text-xs">
                       <button 
                         type="button"
                         onClick={() => setPaletteTab('emoji')} 
-                        className={`px-2 py-1 rounded ${paletteTab === 'emoji' ? 'bg-[#c1440e] text-white' : 'text-gray-600'}`}
+                        className={`px-2 py-1 rounded cursor-pointer ${paletteTab === 'emoji' ? 'bg-[#c1440e] text-white' : 'text-gray-600'}`}
                       >
                         絵文字
                       </button>
                       <button 
                         type="button"
                         onClick={() => setPaletteTab('aa')} 
-                        className={`px-2 py-1 rounded ${paletteTab === 'aa' ? 'bg-[#c1440e] text-white' : 'text-gray-600'}`}
+                        className={`px-2 py-1 rounded cursor-pointer ${paletteTab === 'aa' ? 'bg-[#c1440e] text-white' : 'text-gray-600'}`}
                       >
                         アスキーアート (AA)
                       </button>
                       <button 
                         type="button"
                         onClick={() => setPaletteTab('svg')} 
-                        className={`px-2 py-1 rounded ${paletteTab === 'svg' ? 'bg-[#c1440e] text-white' : 'text-gray-600'}`}
+                        className={`px-2 py-1 rounded cursor-pointer ${paletteTab === 'svg' ? 'bg-[#c1440e] text-white' : 'text-gray-600'}`}
                       >
                         SVG掲示板用パーツ
                       </button>
@@ -2980,7 +2972,6 @@ ${replyText}`;
                   </div>
                 )}
 
-                {/* チャット入力テキストエリア */}
                 <form onSubmit={handlePost} className="flex gap-2">
                   <textarea
                     rows={2}
@@ -3002,6 +2993,7 @@ ${replyText}`;
             </div>
           </div>
         )}
+
         {/* =========================================================
             【ヘルプ・使い方ガイド モーダル】
            ========================================================= */}
@@ -3009,7 +3001,6 @@ ${replyText}`;
           <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center z-50 p-4 font-sans">
             <div className="bg-white text-gray-800 rounded-3xl max-w-2xl w-full shadow-2xl border border-gray-200 overflow-hidden flex flex-col max-h-[85vh]">
               
-              {/* ヘルプヘッダー */}
               <div className="bg-gradient-to-r from-amber-600 to-orange-600 text-white p-4 flex justify-between items-center">
                 <h3 className="text-sm font-bold flex items-center gap-2">
                   <span>📖</span> 世界多言語掲示板「言霊」の使い方ガイド
@@ -3022,10 +3013,7 @@ ${replyText}`;
                 </button>
               </div>
 
-              {/* ヘルプ本文 */}
               <div className="p-6 overflow-y-auto space-y-5 text-xs leading-relaxed text-gray-700">
-                
-                {/* セクション1: モード紹介 */}
                 <div className="space-y-2">
                   <h4 className="font-bold text-amber-800 text-sm border-b pb-1">🌐 4つの切り替えモード</h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
@@ -3048,7 +3036,6 @@ ${replyText}`;
                   </div>
                 </div>
 
-                {/* セクション2: 便利機能 */}
                 <div className="space-y-2">
                   <h4 className="font-bold text-amber-800 text-sm border-b pb-1">✨ 主な便利機能</h4>
                   <ul className="list-disc pl-5 space-y-1.5 text-gray-600">
@@ -3057,10 +3044,8 @@ ${replyText}`;
                     <li><b>🛡️ AI暴言フィルター:</b> 攻撃的な言葉が入力された場合でも、AIが自動的にマイルドで優しい表現に言い換えて投稿を守ります。</li>
                   </ul>
                 </div>
-
               </div>
 
-              {/* ヘルプフッター */}
               <div className="p-4 bg-gray-50 border-t border-gray-200 text-right">
                 <button
                   onClick={() => setIsHelpOpen(false)}
