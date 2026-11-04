@@ -11,14 +11,27 @@ import { Reply, UserAccount, ENJOY_CATEGORIES, LANGUAGES } from './categories';
 // ==========================================
 const SafeSvgContent: React.FC<{ content: string; size?: 'thumb' | 'full' }> = ({ content, size = 'full' }) => {
   const safeContent = content || '';
-  const hasSvgTag = /<\s*svg[\s>]/i.test(safeContent) && /<\s*\/\s*svg\s*>/i.test(safeContent);
 
-  if (safeContent && hasSvgTag) {
+  // HTMLエンティティをデコードしてからチェック（Geminiフィルター対策）
+  const decoded = safeContent
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+
+  const hasSvgTag = /<\s*svg[\s>]/i.test(decoded) && /<\s*\/\s*svg\s*>/i.test(decoded);
+
+  if (decoded && hasSvgTag) {
+    // SVG部分のみを安全に抽出
+    const svgMatch = decoded.match(/<svg[\s\S]*?<\/svg>/i);
+    const svgOnly = svgMatch ? svgMatch[0] : decoded;
+
     if (size === 'thumb') {
       return (
         <div 
           className="svg-container-thumb inline-flex items-center justify-center w-7 h-7 overflow-hidden rounded bg-black/10 shrink-0"
-          dangerouslySetInnerHTML={{ __html: safeContent }} 
+          dangerouslySetInnerHTML={{ __html: svgOnly }} 
         />
       );
     }
@@ -26,7 +39,7 @@ const SafeSvgContent: React.FC<{ content: string; size?: 'thumb' | 'full' }> = (
     return (
       <div 
         className="svg-container-full w-full overflow-x-auto p-4 bg-black/20 rounded-2xl flex justify-center my-2 max-h-[500px]"
-        dangerouslySetInnerHTML={{ __html: safeContent }} 
+        dangerouslySetInnerHTML={{ __html: svgOnly }} 
       />
     );
   }
@@ -90,13 +103,15 @@ export default function KotodamaBoard() {
   const [enjoyViewMode, setEnjoyViewMode] = useState<'list' | 'detail' | 'write'>('list');
   const [enjoySelectedThreadId, setEnjoySelectedThreadId] = useState<number | null>(null);
 
-  // 初期状態を未ログイン（ゲスト）に整理し、後でLocalStorageから復元する
+  // 初期状態を未ログイン（ゲスト）に整理
   const [account, setAccount] = useState<UserAccount>({
     isLoggedIn: false,
     name: 'ゲスト',
     handle: '@guest',
     avatarChar: 'ゲ',
   });
+
+  const [isHydrated, setIsHydrated] = useState(false); // 復元完了フラグ（レースコンディション対策）
 
   // 起動時にLocalStorageからログインセッションを復元
   useEffect(() => {
@@ -111,16 +126,19 @@ export default function KotodamaBoard() {
         console.error('セッション復元エラー:', e);
       }
     }
+    setIsHydrated(true); // 復元完了を記録
   }, []);
 
-  // ログイン状態が変わったらLocalStorageに保存
+  // ログイン状態が変わったらLocalStorageに保存（ハイドレーション完了後のみ走らせる）
   useEffect(() => {
+    if (!isHydrated) return; // 初回マウント時に誤ってセッションを削除するのを防止
+
     if (account.isLoggedIn) {
       localStorage.setItem('kotodama_user_account', JSON.stringify(account));
     } else {
       localStorage.removeItem('kotodama_user_account');
     }
-  }, [account]);
+  }, [account, isHydrated]);
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [editNameInput, setEditNameInput] = useState('');
@@ -617,7 +635,6 @@ export default function KotodamaBoard() {
   const handlePost = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // ログイン状態および投稿内容のバリデーション強化（未ログイン時は投稿をブロックするか警告）
     if (!account.isLoggedIn) {
       alert('書き込みを行うにはログインが必要です。画面右上の「ログイン」ボタンからログインしてください。');
       setIsAuthModalOpen(true);
